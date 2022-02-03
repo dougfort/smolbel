@@ -4,6 +4,7 @@ pub mod object;
 use object::Object;
 
 pub mod parser;
+pub use parser::parse;
 
 #[derive(Debug)]
 pub struct Bel {}
@@ -13,7 +14,7 @@ impl Bel {
         Bel {}
     }
 
-    pub fn eval(&mut self, _text: &str) -> Result<Object, Error> {
+    pub fn eval(&mut self, _exp: &Object) -> Result<Object, Error> {
         Ok(object::nil())
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Error};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::Bel;
+use smolbel::{parse, Bel};
 
 fn main() -> Result<(), Error> {
     let mut rl = Editor::<()>::new();
@@ -16,9 +16,17 @@ fn main() -> Result<(), Error> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                match bel.eval(&line) {
+                match parse(&line) {
                     Ok(obj) => {
                         println!("{:?}", obj);
+                        match bel.eval(&obj) {
+                            Ok(_obj) => {
+                                // println!("{:?}", obj);
+                            }
+                            Err(err) => {
+                                eprintln!("error: {:?}", err);
+                            }
+                        }
                     }
                     Err(err) => {
                         eprintln!("error: {:?}", err);
