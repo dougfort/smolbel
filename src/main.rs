@@ -9,7 +9,7 @@ fn main() -> Result<(), Error> {
         println!("No previous history.");
     };
 
-    let mut bel = Bel::new(); 
+    let mut bel = Bel::new();
 
     loop {
         let readline = rl.readline(">> ");
@@ -17,9 +17,9 @@ fn main() -> Result<(), Error> {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
                 match bel.eval(&line) {
-                    Ok(obj) =>  {
+                    Ok(obj) => {
                         println!("{:?}", obj);
-                    },
+                    }
                     Err(err) => {
                         eprintln!("error: {:?}", err);
                     }
