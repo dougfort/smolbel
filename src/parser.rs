@@ -76,18 +76,26 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
     }
     let mut data = text[1..].to_string();
 
-    let mut obj_accum: Object = object::nil();
+    let mut vec_accum: Vec<Object> = Vec::new();
 
     'dispatch_loop: while !data.is_empty() {
         let state = dispatch_char(&data)?;
         if !state.obj.is_nil() {
-            obj_accum = object::join(state.obj, obj_accum)?;
+            vec_accum.push(state.obj);
         }
         if state.remainder.starts_with(')') {
             data = state.remainder[1..].to_string();
             break 'dispatch_loop;
         }
         data = state.remainder;
+    }
+
+    // the list we accumulated while parsing is backwards
+    vec_accum.reverse();
+
+    let mut obj_accum: Object = object::nil();
+    for obj in vec_accum {
+        obj_accum = object::join(obj, obj_accum)?;
     }
 
     Ok(ParseState {
@@ -209,6 +217,25 @@ mod tests {
         assert_eq!(
             parse_state.obj.to_vec()?,
             vec![object::symbol("a"), object::symbol("b")]
+        );
+
+        let parse_state = consume_parens("( a b (c d))")?;
+        assert!(
+            parse_state.remainder.is_empty(),
+            "remainder.is_empty() {:?}",
+            parse_state.remainder
+        );
+        assert_eq!(
+            parse_state.obj.to_vec()?,
+            vec![
+                object::symbol("a"),
+                object::symbol("b"),
+                object::pair(
+                    object::symbol("c"),
+                    object::pair(object::symbol("d"), object::nil())
+                )
+
+                ]
         );
 
         Ok(())

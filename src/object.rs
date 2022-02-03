@@ -39,6 +39,7 @@ impl Object {
     }
 
     // convert a series of pairs (proper list) into a vector
+    // note that this does not handle and embedded list
     pub fn to_vec(&self) -> Result<Vec<Object>, Error> {
         let mut accum: Vec<Object> = Vec::new();
         let mut list = self.clone();
