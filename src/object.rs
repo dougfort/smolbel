@@ -29,6 +29,14 @@ impl Object {
         }
     }
 
+    pub fn is_true(&self) -> bool {
+        if let Object::Symbol(name) = self {
+            name == "t"
+        } else {
+            false
+        }
+    }
+
     pub fn is_pair(&self, o1: Object, o2: Object) -> bool {
         if let Object::Pair(pair) = self {
             let (car, cdr) = *pair.clone();
