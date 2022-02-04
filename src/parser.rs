@@ -40,6 +40,8 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
             remainder: text[1..].to_string(),
             obj: state.obj,
         })
+    } else if state.remainder.starts_with('`') {
+        consume_quote(&state.remainder)
     } else if state.remainder.starts_with('\\') {
         consume_char(&state.remainder)
     } else {
@@ -100,6 +102,32 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
 
     Ok(ParseState {
         remainder: data,
+        obj: obj_accum,
+    })
+}
+
+fn consume_quote(text: &str) -> Result<ParseState, Error> {
+    if text.is_empty() {
+        return Err(anyhow!("consume_quote called with empty text"));
+    }
+
+    if !text.starts_with('`') {
+        return Err(anyhow!(
+            "consume_quote text does not start with '`' '{}'",
+            text
+        ));
+    }
+    let state = dispatch_char(&text[1..].to_string())?;
+    if state.obj.is_nil() {
+        return Err(anyhow!("consume_quote: quoted nil object"));
+    }
+
+    let mut obj_accum: Object = object::nil();
+    obj_accum = object::join(state.obj, obj_accum)?;
+    obj_accum = object::join(object::symbol("quote"), obj_accum)?;
+
+    Ok(ParseState {
+        remainder: state.remainder,
         obj: obj_accum,
     })
 }
@@ -234,8 +262,29 @@ mod tests {
                     object::symbol("c"),
                     object::pair(object::symbol("d"), object::nil())
                 )
+            ]
+        );
 
-                ]
+        Ok(())
+    }
+
+    #[test]
+    fn can_consume_quote() -> Result<(), Error> {
+        let parse_state = consume_quote("`a")?;
+        assert!(parse_state.remainder.is_empty());
+        assert_eq!(
+            parse_state.obj.to_vec()?,
+            vec![object::symbol("quote"), object::symbol("a")]
+        );
+
+        let parse_state = consume_quote("`(a)")?;
+        assert!(parse_state.remainder.is_empty());
+        assert_eq!(
+            parse_state.obj.to_vec()?,
+            vec![
+                object::symbol("quote"),
+                object::pair(object::symbol("a"), object::nil(),)
+            ]
         );
 
         Ok(())
