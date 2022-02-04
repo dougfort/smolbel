@@ -1,35 +1,38 @@
-use crate::Bel;
 use crate::object;
 use crate::parse;
+use crate::Bel;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-pub fn load_commands(bel: &mut Bel, filepath: &str) -> Result<()> {
+pub fn load_source(bel: &mut Bel, filepath: &str) -> Result<()> {
     let file = File::open(filepath)?;
     let reader = BufReader::new(file);
 
+    let mut expr_count: usize = 0;
     let mut accum = String::new();
-    'line_loop: for line in reader.lines() {
+    for line in reader.lines() {
         let line = line?;
+        println!("load_source: line = {:?}", line);
         // https://sep.yimg.com/ty/cdn/paulgraham/bellanguage.txt has some weird
         // unicode byte order mark
-        if line.starts_with('\u{feff}') {
-            continue 'line_loop;
-        }
-        if line.starts_with(';') {
-            continue 'line_loop;
-        }
-        if line.is_empty() && !accum.is_empty() {
-            let parsed_expr = parse(&accum)?;
-            let locals: HashMap<String, object::Object> = HashMap::new();
-            bel.eval(&locals, &parsed_expr)
-                .context(format!("\n\n{}\n", accum))?;
-            accum.clear();
-        }
+        if !line.starts_with('\u{feff}') && !line.starts_with(';') {
+            if line.is_empty() && !accum.is_empty() {
+                let parsed_expr = parse(&accum)?;
+                let locals: HashMap<String, object::Object> = HashMap::new();
+                bel.eval(&locals, &parsed_expr)
+                    .context(format!("\n\n{}\n", accum))?;
+                expr_count += 1;
+                if expr_count == 1 {
+                    println!("load_source: breaking after {} expression", expr_count);
+                    break;
+                }
+                accum.clear();
+            }
 
-        accum.push_str(&format!("{}\n", &line));
+            accum.push_str(&format!("{}\n", &line));
+        }
     }
 
     Ok(())

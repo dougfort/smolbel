@@ -12,7 +12,8 @@ pub fn parse(text: &str) -> Result<Object, Error> {
 
     let mut data = text.to_string();
     while !data.is_empty() {
-        let state = dispatch_char(text)?;
+        let state = dispatch_char(&data)?;
+        println!("parse: state.remainder {:?}", state.remainder);
         data = state.remainder;
         if !state.obj.is_nil() {
             obj_accum.push(state.obj);
@@ -30,7 +31,7 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
     let state = consume_whitespace(text)?;
     if state.remainder.is_empty() {
         Ok(ParseState {
-            remainder: text.to_string(),
+            remainder: "".to_string(),
             obj: object::nil(),
         })
     } else if state.remainder.starts_with('(') {

@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
-use anyhow::{Result, Error};
-use crate::object::Object;
 use crate::object;
+use crate::object::Object;
+use anyhow::{Error, Result};
 
 pub type PrimFunc = fn(&Object) -> Result<Object, Error>;
 
 pub fn load_primatives() -> HashMap<String, PrimFunc> {
-    HashMap::from([
-        ("id".to_string(), id as PrimFunc),
-    ])
+    HashMap::from([("id".to_string(), id as PrimFunc)])
 }
 
 fn id(params: &Object) -> Result<Object, Error> {
@@ -49,5 +47,4 @@ mod tests {
 
         Ok(())
     }
-
 }
