@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Error};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{parse, Bel, Object, load_commands};
+use smolbel::{load_source, parse, Bel, ObjectMap};
 
 fn main() -> Result<(), Error> {
     let mut rl = Editor::<()>::new();
@@ -24,7 +24,7 @@ fn main() -> Result<(), Error> {
                     continue 'repl_loop;
                 }
 
-                let locals: HashMap<String, Object> = HashMap::new();
+                let locals: ObjectMap = HashMap::new();
                 match parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {:?}", exp);
@@ -74,7 +74,7 @@ fn process_repl_command(bel: &mut Bel, line: &str) {
                 println!("load: <filepah>");
                 return;
             }
-            match load_commands(bel, parts[1]) {
+            match load_source(bel, parts[1]) {
                 Ok(()) => {}
                 Err(err) => {
                     println!("error: during :load; {:?}", err);

@@ -12,7 +12,7 @@ pub fn parse(text: &str) -> Result<Object, Error> {
 
     let mut data = text.to_string();
     while !data.is_empty() {
-        let state = dispatch_char(text)?;
+        let state = dispatch_char(&data)?;
         data = state.remainder;
         if !state.obj.is_nil() {
             obj_accum.push(state.obj);
@@ -30,7 +30,7 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
     let state = consume_whitespace(text)?;
     if state.remainder.is_empty() {
         Ok(ParseState {
-            remainder: text.to_string(),
+            remainder: "".to_string(),
             obj: object::nil(),
         })
     } else if state.remainder.starts_with('(') {
@@ -92,13 +92,7 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
         data = state.remainder;
     }
 
-    // the list we accumulated while parsing is backwards
-    vec_accum.reverse();
-
-    let mut obj_accum: Object = object::nil();
-    for obj in vec_accum {
-        obj_accum = object::join(obj, obj_accum)?;
-    }
+    let obj_accum = object::from_vec(vec_accum)?;
 
     Ok(ParseState {
         remainder: data,
