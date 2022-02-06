@@ -12,6 +12,18 @@ pub enum Object {
     Stream,
 }
 
+macro_rules! nil {
+    () => {
+        Object::Symbol("nil".to_string())
+    };
+}
+
+macro_rules! symbol {
+    ($n:expr) => {
+        Object::Symbol($n.to_string())
+    };
+}
+
 impl Object {
     pub fn is_symbol(&self, name: &str) -> bool {
         if let Object::Symbol(n) = self {
@@ -87,7 +99,7 @@ pub fn pair(a: Object, b: Object) -> Object {
     Object::Pair(Box::new((a, b)))
 }
 
-// join puta an object at the head of the list
+// join puts a an object at the head of the list
 // see also cons, which takes multiple objects
 pub fn join(obj: Object, list: Object) -> Result<Object, Error> {
     if list.is_nil() {
@@ -97,6 +109,18 @@ pub fn join(obj: Object, list: Object) -> Result<Object, Error> {
     } else {
         Err(anyhow!("invalid list: {:?}", list))
     }
+}
+
+pub fn from_vec(v: Vec<Object>) -> Result<Object, Error> {
+    let mut mv = v;
+    mv.reverse();
+
+    let mut obj_accum: Object = nil();
+    for obj in mv {
+        obj_accum = join(obj, obj_accum)?;
+    }
+
+    Ok(obj_accum)
 }
 
 #[cfg(test)]

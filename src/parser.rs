@@ -13,7 +13,6 @@ pub fn parse(text: &str) -> Result<Object, Error> {
     let mut data = text.to_string();
     while !data.is_empty() {
         let state = dispatch_char(&data)?;
-        println!("parse: state.remainder {:?}", state.remainder);
         data = state.remainder;
         if !state.obj.is_nil() {
             obj_accum.push(state.obj);
@@ -93,13 +92,7 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
         data = state.remainder;
     }
 
-    // the list we accumulated while parsing is backwards
-    vec_accum.reverse();
-
-    let mut obj_accum: Object = object::nil();
-    for obj in vec_accum {
-        obj_accum = object::join(obj, obj_accum)?;
-    }
+    let obj_accum = object::from_vec(vec_accum)?;
 
     Ok(ParseState {
         remainder: data,
