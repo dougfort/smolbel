@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, Error};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{load_source, parse, Bel, ObjectMap};
+use smolbel::{load_source, parse, Bel};
 
 fn main() -> Result<(), Error> {
     let mut rl = Editor::<()>::new();
@@ -24,11 +22,10 @@ fn main() -> Result<(), Error> {
                     continue 'repl_loop;
                 }
 
-                let locals: ObjectMap = HashMap::new();
                 match parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {:?}", exp);
-                        match bel.eval(&locals, &exp) {
+                        match bel.eval(&exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
                             }
