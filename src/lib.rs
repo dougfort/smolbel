@@ -40,10 +40,10 @@ impl Bel {
         }
     }
 
-    pub fn eval(&mut self, locals: &ObjectMap, exp: &Object) -> Result<Object, Error> {
+    pub fn eval(&mut self, exp: &Object) -> Result<Object, Error> {
         let output = match exp {
-            Object::Symbol(name) => self.get_bound_object(locals, name)?,
-            Object::Pair(pair) => self.eval_pair(locals, pair)?,
+            Object::Symbol(name) => self.get_bound_object(name)?,
+            Object::Pair(pair) => self.eval_pair(pair)?,
             Object::Char(_c) => {
                 return Err(anyhow!("Object::Char not implemented"));
             }
@@ -55,18 +55,14 @@ impl Bel {
         Ok(output)
     }
 
-    fn get_bound_object(&self, locals: &ObjectMap, name: &str) -> Result<Object, Error> {
-        // look first in locals, then in globals
-        match locals.get(name) {
+    fn get_bound_object(&self, name: &str) -> Result<Object, Error> {
+        match self.globals.get(name) {
             Some(obj) => Ok(obj.clone()),
-            None => match self.globals.get(name) {
-                Some(obj) => Ok(obj.clone()),
-                None => Err(anyhow!("unbound symbol: {:?}", name)),
-            },
+            None => Err(anyhow!("unbound symbol: {:?}", name)),
         }
     }
 
-    fn eval_pair(&mut self, locals: &ObjectMap, pair: &(Object, Object)) -> Result<Object, Error> {
+    fn eval_pair(&mut self, pair: &(Object, Object)) -> Result<Object, Error> {
         let (car, cdr) = &*pair;
         if let Object::Symbol(name) = car {
             match name.as_ref() {
@@ -75,21 +71,21 @@ impl Bel {
                 "mac" => self.mac(cdr),
                 "quote" => quote(cdr),
                 n if self.primatives.contains_key(n) => {
-                    let evaluated_list = self.evaluate_list(locals, cdr)?;
+                    let evaluated_list = self.evaluate_list(cdr)?;
                     self.primatives[n](&evaluated_list)
                 }
                 n if self.function_names.contains(n) => {
-                    let evaluated_list = self.evaluate_list(locals, cdr)?;
-                    self.apply_function(locals, n, &evaluated_list)
+                    let evaluated_list = self.evaluate_list(cdr)?;
+                    self.apply_function(n, &evaluated_list)
                 }
                 n if self.macro_names.contains(n) => {
-                    let evaluated_list = self.evaluate_list(locals, cdr)?;
-                    self.apply_macro(locals, n, &evaluated_list)
+                    let evaluated_list = self.evaluate_list(cdr)?;
+                    self.apply_macro(n, &evaluated_list)
                 }
-                _ => self.evaluate_list(locals, cdr),
+                _ => self.evaluate_list(cdr),
             }
         } else {
-            self.evaluate_list(locals, cdr)
+            self.evaluate_list(cdr)
         }
     }
 
@@ -146,32 +142,22 @@ impl Bel {
         self.set(&mac_def)
     }
 
-    fn apply_function(
-        &mut self,
-        _locals: &ObjectMap,
-        _name: &str,
-        _args: &Object,
-    ) -> Result<Object, Error> {
+    fn apply_function(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
         Err(anyhow!("apply_function not implemented"))
     }
 
-    fn apply_macro(
-        &mut self,
-        _locals: &ObjectMap,
-        _name: &str,
-        _args: &Object,
-    ) -> Result<Object, Error> {
+    fn apply_macro(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
         Err(anyhow!("apply_function not implemented"))
     }
 
-    fn evaluate_list(&mut self, locals: &ObjectMap, list: &Object) -> Result<Object, Error> {
+    fn evaluate_list(&mut self, list: &Object) -> Result<Object, Error> {
         let mut accum: Object = nil!();
         let mut list = list.clone();
 
         while !list.is_nil() {
             if let Object::Pair(pair) = list {
                 let (car, cdr) = *pair.clone();
-                let obj = self.eval(locals, &car)?;
+                let obj = self.eval(&car)?;
                 accum = object::join(obj, accum)?;
                 list = cdr;
             } else {
@@ -238,9 +224,8 @@ mod tests {
     #[test]
     fn can_get_object() -> Result<(), Error> {
         let mut bel = Bel::new();
-        let locals: ObjectMap = HashMap::new();
         let exp = parse("t")?;
-        let obj = bel.eval(&locals, &exp)?;
+        let obj = bel.eval(&exp)?;
         assert_eq!(exp, obj);
         Ok(())
     }
@@ -248,13 +233,12 @@ mod tests {
     #[test]
     fn can_set_object() -> Result<(), Error> {
         let mut bel = Bel::new();
-        let locals: ObjectMap = HashMap::new();
         let exp = parse("(set a b)")?;
-        let obj = bel.eval(&locals, &exp)?;
+        let obj = bel.eval(&exp)?;
         assert!(obj.is_nil());
 
         let exp = parse("a")?;
-        let obj = bel.eval(&locals, &exp)?;
+        let obj = bel.eval(&exp)?;
         assert_eq!(obj, object::symbol("b"));
         Ok(())
     }
@@ -262,10 +246,9 @@ mod tests {
     #[test]
     fn can_set_multiple() -> Result<(), Error> {
         let mut bel = Bel::new();
-        let locals: ObjectMap = HashMap::new();
 
         let parse_obj = parse("(set a b c d e f)")?;
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_nil());
 
         for (key, val) in &[
@@ -274,7 +257,7 @@ mod tests {
             ("e", "f".to_string()),
         ] {
             let parse_obj = parse(key)?;
-            let obj = bel.eval(&locals, &parse_obj)?;
+            let obj = bel.eval(&parse_obj)?;
             if let Object::Symbol(s) = obj {
                 assert_eq!(&s, val);
             } else {
@@ -288,10 +271,9 @@ mod tests {
     #[test]
     fn can_set_multiple_with_default() -> Result<(), Error> {
         let mut bel = Bel::new();
-        let locals: ObjectMap = HashMap::new();
 
         let parse_obj = parse("(set a b c d e)")?;
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_nil());
 
         for (key, val) in &[
@@ -300,7 +282,7 @@ mod tests {
             ("e", "nil".to_string()),
         ] {
             let parse_obj = parse(key)?;
-            let obj = bel.eval(&locals, &parse_obj)?;
+            let obj = bel.eval(&parse_obj)?;
             if let Object::Symbol(s) = obj {
                 assert_eq!(&s, val);
             } else {
@@ -314,14 +296,13 @@ mod tests {
     #[test]
     fn can_quote_object() -> Result<(), Error> {
         let mut bel = Bel::new();
-        let locals: ObjectMap = HashMap::new();
 
         let parse_obj = parse("(set a b)")?;
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_nil());
 
         let parse_obj = parse("(quote a)")?;
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         if let Object::Symbol(s) = obj {
             assert_eq!(s, "a");
         } else {
@@ -329,7 +310,7 @@ mod tests {
         }
 
         let parse_obj = parse("(quote ( x ))")?;
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert_eq!(obj, object::pair(object::symbol("x"), nil!()));
 
         Ok(())
@@ -344,18 +325,15 @@ mod tests {
                 (id x nil))
           "#,
         )?;
-        let locals: ObjectMap = HashMap::new();
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_nil());
 
         let parse_obj = parse("(xnox nil)")?;
-        let locals: ObjectMap = HashMap::new();
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_true());
 
         let parse_obj = parse("(xnox `a)")?;
-        let locals: ObjectMap = HashMap::new();
-        let obj = bel.eval(&locals, &parse_obj)?;
+        let obj = bel.eval(&parse_obj)?;
         assert!(obj.is_nil(), "{:?}", obj);
 
         Ok(())
