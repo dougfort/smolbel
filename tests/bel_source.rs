@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use anyhow::Error;
-    use smolbel::{load_source, object, parse, Bel};
+
+    use smolbel::{load_source, parse, Bel};
 
     const SOURCE_PATH: &str = "bel_source/bel.bel";
 
@@ -12,11 +13,11 @@ mod tests {
 
         let exp = parse("(no `a)")?;
         let obj = bel.eval(&exp)?;
-        assert_eq!(obj, object::nil());
+        assert!(obj.is_nil());
 
         let exp = parse("(no nil)")?;
         let obj = bel.eval(&exp)?;
-        assert_eq!(obj, object::symbol("t"));
+        assert!(obj.is_true());
 
         Ok(())
     }

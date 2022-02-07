@@ -4,7 +4,7 @@ use anyhow::{anyhow, Error};
 
 struct ParseState {
     remainder: String,
-    obj: Object,
+    obj: Option<Object>,
 }
 
 pub fn parse(text: &str) -> Result<Object, Error> {
@@ -14,13 +14,13 @@ pub fn parse(text: &str) -> Result<Object, Error> {
     while !data.is_empty() {
         let state = dispatch_char(&data)?;
         data = state.remainder;
-        if !state.obj.is_nil() {
-            obj_accum.push(state.obj);
+        if let Some(obj) = state.obj {
+            obj_accum.push(obj);
         }
     }
 
     match obj_accum.len() {
-        0 => Ok(object::nil()),
+        0 => Ok(nil!()),
         1 => Ok(obj_accum[0].clone()),
         _ => Err(anyhow!("multiple objects: {:?}", obj_accum)),
     }
@@ -31,7 +31,7 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
     if state.remainder.is_empty() {
         Ok(ParseState {
             remainder: "".to_string(),
-            obj: object::nil(),
+            obj: None,
         })
     } else if state.remainder.starts_with('(') {
         consume_parens(&state.remainder)
@@ -54,14 +54,14 @@ fn consume_whitespace(text: &str) -> Result<ParseState, Error> {
         if !c.is_whitespace() {
             return Ok(ParseState {
                 remainder: text[i..].to_string(),
-                obj: object::nil(),
+                obj: None,
             });
         }
     }
 
     Ok(ParseState {
         remainder: "".to_string(),
-        obj: object::nil(),
+        obj: None,
     })
 }
 
@@ -82,8 +82,8 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
 
     'dispatch_loop: while !data.is_empty() {
         let state = dispatch_char(&data)?;
-        if !state.obj.is_nil() {
-            vec_accum.push(state.obj);
+        if let Some(obj) = state.obj {
+            vec_accum.push(obj);
         }
         if state.remainder.starts_with(')') {
             data = state.remainder[1..].to_string();
@@ -96,7 +96,7 @@ fn consume_parens(text: &str) -> Result<ParseState, Error> {
 
     Ok(ParseState {
         remainder: data,
-        obj: obj_accum,
+        obj: Some(obj_accum),
     })
 }
 
@@ -112,18 +112,19 @@ fn consume_quote(text: &str) -> Result<ParseState, Error> {
         ));
     }
     let state = dispatch_char(&text[1..].to_string())?;
-    if state.obj.is_nil() {
-        return Err(anyhow!("consume_quote: quoted nil object"));
+    match state.obj {
+        Some(obj) => {
+            let mut obj_accum: Object = nil!();
+            obj_accum = object::join(obj, obj_accum)?;
+            obj_accum = object::join(symbol!("quote"), obj_accum)?;
+
+            Ok(ParseState {
+                remainder: state.remainder,
+                obj: Some(obj_accum),
+            })
+        }
+        None => Err(anyhow!("consume_quote: quoted nil object")),
     }
-
-    let mut obj_accum: Object = object::nil();
-    obj_accum = object::join(state.obj, obj_accum)?;
-    obj_accum = object::join(object::symbol("quote"), obj_accum)?;
-
-    Ok(ParseState {
-        remainder: state.remainder,
-        obj: obj_accum,
-    })
 }
 
 fn consume_char(text: &str) -> Result<ParseState, Error> {
@@ -139,9 +140,9 @@ fn consume_char(text: &str) -> Result<ParseState, Error> {
     }
 
     let obj = if accum.is_empty() {
-        object::nil()
+        None
     } else {
-        object::symbol(&accum)
+        Some(symbol!(&accum))
     };
 
     Ok(ParseState {
@@ -163,9 +164,9 @@ fn consume_symbol(text: &str) -> Result<ParseState, Error> {
     }
 
     let obj = if accum.is_empty() {
-        object::nil()
+        None
     } else {
-        object::symbol(&accum)
+        Some(symbol!(&accum))
     };
 
     Ok(ParseState {
@@ -183,35 +184,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_consume_whitespace() -> Result<(), Error> {
+    fn can_consume_symbol() -> Result<(), Error> {
         let parse_state = consume_symbol("")?;
         assert!(parse_state.remainder.is_empty());
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.is_none());
 
         let parse_state = consume_symbol("a")?;
         assert!(parse_state.remainder.is_empty());
-        assert!(parse_state.obj.is_symbol("a"));
+        assert!(parse_state.obj.unwrap().is_symbol("a"));
 
         let parse_state = consume_whitespace("(")?;
         assert_eq!(parse_state.remainder, "(");
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.is_none());
 
         Ok(())
     }
 
     #[test]
-    fn can_consume_symbol() -> Result<(), Error> {
+    fn can_consume_whitespacel() -> Result<(), Error> {
         let parse_state = consume_whitespace("")?;
         assert!(parse_state.remainder.is_empty());
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.is_none());
 
         let parse_state = consume_whitespace("a")?;
         assert_eq!(parse_state.remainder, "a");
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.is_none());
 
         let parse_state = consume_whitespace("    (")?;
         assert_eq!(parse_state.remainder, "(");
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.is_none());
 
         Ok(())
     }
@@ -220,7 +221,7 @@ mod tests {
     fn can_consume_parens() -> Result<(), Error> {
         let parse_state = consume_parens("()")?;
         assert!(parse_state.remainder.is_empty());
-        assert!(parse_state.obj.is_nil());
+        assert!(parse_state.obj.unwrap().is_nil());
 
         let parse_state = consume_parens("( a )")?;
         assert!(
@@ -228,7 +229,7 @@ mod tests {
             "remainder.is_empty() {:?}",
             parse_state.remainder
         );
-        assert_eq!(parse_state.obj.to_vec()?, vec![object::symbol("a")]);
+        assert_eq!(parse_state.obj.unwrap().to_vec()?, vec![symbol!("a")]);
 
         let parse_state = consume_parens("( a b )")?;
         assert!(
@@ -237,8 +238,8 @@ mod tests {
             parse_state.remainder
         );
         assert_eq!(
-            parse_state.obj.to_vec()?,
-            vec![object::symbol("a"), object::symbol("b")]
+            parse_state.obj.unwrap().to_vec()?,
+            vec![symbol!("a"), symbol!("b")]
         );
 
         let parse_state = consume_parens("( a b (c d))")?;
@@ -248,15 +249,23 @@ mod tests {
             parse_state.remainder
         );
         assert_eq!(
-            parse_state.obj.to_vec()?,
+            parse_state.obj.unwrap().to_vec()?,
             vec![
-                object::symbol("a"),
-                object::symbol("b"),
-                object::pair(
-                    object::symbol("c"),
-                    object::pair(object::symbol("d"), object::nil())
-                )
+                symbol!("a"),
+                symbol!("b"),
+                pair!(symbol!("c"), pair!(symbol!("d"), nil!()))
             ]
+        );
+
+        let parse_state = consume_parens("( a nil )")?;
+        assert!(
+            parse_state.remainder.is_empty(),
+            "remainder.is_empty() {:?}",
+            parse_state.remainder
+        );
+        assert_eq!(
+            parse_state.obj.unwrap(),
+            pair!(symbol!("a"), pair!(nil!(), nil!()))
         );
 
         Ok(())
@@ -267,19 +276,27 @@ mod tests {
         let parse_state = consume_quote("`a")?;
         assert!(parse_state.remainder.is_empty());
         assert_eq!(
-            parse_state.obj.to_vec()?,
-            vec![object::symbol("quote"), object::symbol("a")]
+            parse_state.obj.unwrap().to_vec()?,
+            vec![symbol!("quote"), symbol!("a")]
         );
 
         let parse_state = consume_quote("`(a)")?;
         assert!(parse_state.remainder.is_empty());
         assert_eq!(
-            parse_state.obj.to_vec()?,
-            vec![
-                object::symbol("quote"),
-                object::pair(object::symbol("a"), object::nil(),)
-            ]
+            parse_state.obj.unwrap().to_vec()?,
+            vec![symbol!("quote"), pair!(symbol!("a"), nil!())]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn can_parse_list_of_nil() -> Result<(), Error> {
+        let obj = parse("()")?;
+        assert!(obj.is_nil(), "obj.is_nil() {:?}", obj);
+
+        let obj = parse("(nil)")?;
+        assert_eq!(obj, pair!(nil!(), nil!()));
 
         Ok(())
     }
