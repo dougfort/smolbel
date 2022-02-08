@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Error};
+use log::{debug, trace};
 
 #[macro_use]
 pub mod object;
@@ -41,6 +42,7 @@ impl Bel {
     }
 
     pub fn eval(&mut self, exp: &Object) -> Result<Object, Error> {
+        debug!("eval({:?}))", exp);
         let output = match exp {
             Object::Symbol(name) => self.get_bound_object(name)?,
             Object::Pair(pair) => self.eval_pair(pair)?,
@@ -154,10 +156,7 @@ impl Bel {
         if f_v.len() != 5 {
             return Err(anyhow!("expecting 5 objects in function; found: {:?}", f_v));
         }
-        println!("f_v = {:?}", f_v);
-
-        // the params are in object 3 (the 4th object)
-        let locals = merge_args_with_params(args, &f_v[3])?;
+        debug!("f_v = {:?}", f_v);
 
         // the function executable is object 4 (the 5th) object
         let e = if let Object::Pair(e) = &f_v[4] {
@@ -165,6 +164,7 @@ impl Bel {
         } else {
             return Err(anyhow!("invalid function body: {:?}", f_v[4]));
         };
+        debug!("e = {:?}", e);
 
         let (car, cdr) = *e.clone();
         let e_name = if let Object::Symbol(e_name) = car {
@@ -177,9 +177,13 @@ impl Bel {
             None => return Err(anyhow!("unknown primative: {}", e_name)),
         };
 
-        println!("args = {:?}", args);
-        println!("cdr = {:?}", cdr);
-        p(&cdr)
+        // the params are in object 3 (the 4th object)
+        let locals = merge_args_with_params(args, &f_v[3])?;
+        let x = replace_params_with_args(&locals, &cdr)?;
+
+        debug!("args = {:?}", args);
+        debug!("x = {:?}", x);
+        p(&x)
     }
 
     fn apply_macro(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
@@ -282,6 +286,32 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
     }
 
     Ok(locals)
+}
+
+fn replace_params_with_args(locals: &ObjectMap, params: &Object) -> Result<Object, Error> {
+    let mut accum: Object = nil!();
+    let mut params = params.clone();
+
+    while !params.is_nil() {
+        if let Object::Pair(pair) = params {
+            let (car, cdr) = *pair.clone();
+            let obj = if let Object::Symbol(name) = car.clone() {
+                if let Some(arg) = locals.get(&name) {
+                    arg
+                } else {
+                    &car
+                }
+            } else {
+                &car
+            };
+            accum = object::join(obj.clone(), accum)?;
+            params = cdr;
+        } else {
+            return Err(anyhow!("expected Pair: {:?}", params));
+        }
+    }
+
+    Ok(accum)
 }
 
 #[cfg(test)]

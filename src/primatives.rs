@@ -10,7 +10,6 @@ pub fn load_primatives() -> HashMap<String, PrimFunc> {
 }
 
 fn id(params: &Object) -> Result<Object, Error> {
-    
     // id is true if
     // * there are two arguments
     // * they are both symbols

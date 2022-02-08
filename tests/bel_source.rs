@@ -8,12 +8,14 @@ mod tests {
 
     #[test]
     fn can_load() -> Result<(), Error> {
-        let mut bel = Bel::new();
+        env_logger::init();
+        
+            let mut bel = Bel::new();
         load_source(&mut bel, SOURCE_PATH)?;
 
         let exp = parse("(no `a)")?;
         let obj = bel.eval(&exp)?;
-        assert!(obj.is_nil());
+        assert!(obj.is_nil(), "obj.is_nil(): {:?}", obj);
 
         let exp = parse("(no nil)")?;
         let obj = bel.eval(&exp)?;
