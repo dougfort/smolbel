@@ -18,9 +18,33 @@ macro_rules! nil {
     };
 }
 
+macro_rules! t {
+    () => {
+        Object::Symbol("t".to_string())
+    };
+}
+
 macro_rules! symbol {
     ($n:expr) => {
         Object::Symbol($n.to_string())
+    };
+}
+
+macro_rules! pair {
+    ($a:expr, $b:expr) => {
+        Object::Pair(Box::new(($a, $b)))
+    };
+}
+
+macro_rules! char {
+    ($n:expr) => {
+        Object::Char($n.to_string())
+    };
+}
+
+macro_rules! stream {
+    () => {
+        Object::Stream
     };
 }
 
@@ -59,7 +83,7 @@ impl Object {
     }
 
     // convert a series of pairs (proper list) into a vector
-    // note that this does not handle and embedded list
+    // note that this does not handle an embedded list
     pub fn to_vec(&self) -> Result<Vec<Object>, Error> {
         let mut accum: Vec<Object> = Vec::new();
         let mut list = self.clone();
@@ -87,23 +111,11 @@ impl Object {
     }
 }
 
-pub fn symbol(name: &str) -> Object {
-    Object::Symbol(name.to_string())
-}
-
-pub fn nil() -> Object {
-    symbol("nil")
-}
-
-pub fn pair(a: Object, b: Object) -> Object {
-    Object::Pair(Box::new((a, b)))
-}
-
 // join puts a an object at the head of the list
 // see also cons, which takes multiple objects
 pub fn join(obj: Object, list: Object) -> Result<Object, Error> {
     if list.is_nil() {
-        Ok(Object::Pair(Box::new((obj, nil()))))
+        Ok(Object::Pair(Box::new((obj, nil!()))))
     } else if let Object::Pair(_) = list {
         Ok(Object::Pair(Box::new((obj, list))))
     } else {
@@ -115,7 +127,7 @@ pub fn from_vec(v: Vec<Object>) -> Result<Object, Error> {
     let mut mv = v;
     mv.reverse();
 
-    let mut obj_accum: Object = nil();
+    let mut obj_accum: Object = nil!();
     for obj in mv {
         obj_accum = join(obj, obj_accum)?;
     }
@@ -131,24 +143,40 @@ mod tests {
     fn can_join_list() -> Result<(), Error> {
         // append nil to empty list. this may be an error
         // (join nil, nil)
-        let list = join(nil(), nil())?;
-        assert!(list.is_pair(nil(), nil()));
+        let list = join(nil!(), nil!())?;
+        assert!(list.is_pair(nil!(), nil!()));
         let v = list.to_vec()?;
-        assert_eq!(v, vec![nil()]);
+        assert_eq!(v, vec![nil!()]);
 
         // append a single object to an empty list
         // (join a nil)
-        let list = join(symbol("a"), nil())?;
-        assert!(list.is_pair(symbol("a"), nil()));
+        let list = join(symbol!("a"), nil!())?;
+        assert!(list.is_pair(symbol!("a"), nil!()));
         let v = list.to_vec()?;
-        assert_eq!(v, vec![symbol("a")]);
+        assert_eq!(v, vec![symbol!("a")]);
 
         // append a single object to an existing list
         // (join a nil)
-        let list = join(symbol("b"), list)?;
-        assert!(list.is_pair(symbol("b"), pair(symbol("a"), nil())));
+        let list = join(symbol!("b"), list)?;
+        assert!(list.is_pair(symbol!("b"), pair!(symbol!("a"), nil!())));
         let v = list.to_vec()?;
-        assert_eq!(v, vec![symbol("b"), symbol("a")]);
+        assert_eq!(v, vec![symbol!("b"), symbol!("a")]);
+
+        Ok(())
+    }
+    #[test]
+    fn can_build_list_from_vec() -> Result<(), Error> {
+        let o = from_vec(vec![])?;
+        assert!(o.is_nil());
+        assert_eq!(o.to_vec()?, vec![]);
+
+        let o = from_vec(vec![nil!()])?;
+        assert_eq!(o, pair!(nil!(), nil!()));
+        assert_eq!(o.to_vec()?, vec![nil!()]);
+
+        let o = from_vec(vec![nil!(), nil!()])?;
+        assert_eq!(o, pair!(nil!(), pair!(nil!(), nil!())));
+        assert_eq!(o.to_vec()?, vec![nil!(), nil!()]);
 
         Ok(())
     }

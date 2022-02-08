@@ -1,9 +1,13 @@
 use anyhow::{anyhow, Error};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use log::{debug, error, info, trace};
 use smolbel::{load_source, parse, Bel};
 
 fn main() -> Result<(), Error> {
+    env_logger::init();
+    info!("program starts");
+
     let mut rl = Editor::<()>::new();
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
@@ -35,7 +39,7 @@ fn main() -> Result<(), Error> {
                         }
                     }
                     Err(err) => {
-                        eprintln!("error: {:?}", err);
+                        error!("error: {:?}", err);
                     }
                 }
             }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Error};
+use log::{debug, trace};
 
 #[macro_use]
 pub mod object;
@@ -30,9 +31,9 @@ impl Bel {
             // some Symbols bind to themselves
             globals: HashMap::from([
                 ("nil".to_string(), nil!()),
-                ("t".to_string(), object::symbol("t")),
-                ("o".to_string(), object::symbol("o")),
-                ("apply".to_string(), object::symbol("apply")),
+                ("t".to_string(), symbol!("t")),
+                ("o".to_string(), symbol!("o")),
+                ("apply".to_string(), symbol!("apply")),
             ]),
             primatives: load_primatives(),
             function_names: HashSet::new(),
@@ -41,6 +42,7 @@ impl Bel {
     }
 
     pub fn eval(&mut self, exp: &Object) -> Result<Object, Error> {
+        debug!("eval({:?}))", exp);
         let output = match exp {
             Object::Symbol(name) => self.get_bound_object(name)?,
             Object::Pair(pair) => self.eval_pair(pair)?,
@@ -136,14 +138,52 @@ impl Bel {
     //  (set n (lit mac (lit clo nil p e)))
     fn mac(&mut self, args: &Object) -> Result<Object, Error> {
         let (name, body) = define_closure(args)?;
-        let mac_body = object::from_vec(vec![object::symbol("lit"), object::symbol("mac"), body])?;
+        let mac_body = object::from_vec(vec![symbol!("lit"), symbol!("mac"), body])?;
         let mac_def = object::from_vec(vec![symbol!(name), mac_body])?;
         self.macro_names.insert(name);
         self.set(&mac_def)
     }
 
-    fn apply_function(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
-        Err(anyhow!("apply_function not implemented"))
+    fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
+        let f = if let Some(f) = self.globals.get(f_name) {
+            f
+        } else {
+            return Err(anyhow!("unknown function {}", f_name));
+        };
+        let f_v = f.to_vec()?;
+
+        // we expect 5 objects in the function (lit clo nil p e)
+        if f_v.len() != 5 {
+            return Err(anyhow!("expecting 5 objects in function; found: {:?}", f_v));
+        }
+        debug!("f_v = {:?}", f_v);
+
+        // the function executable is object 4 (the 5th) object
+        let e = if let Object::Pair(e) = &f_v[4] {
+            e
+        } else {
+            return Err(anyhow!("invalid function body: {:?}", f_v[4]));
+        };
+        debug!("e = {:?}", e);
+
+        let (car, cdr) = *e.clone();
+        let e_name = if let Object::Symbol(e_name) = car {
+            e_name
+        } else {
+            return Err(anyhow!("invalid executable: {:?}", car));
+        };
+        let p = match self.primatives.get(&e_name) {
+            Some(p) => p,
+            None => return Err(anyhow!("unknown primative: {}", e_name)),
+        };
+
+        // the params are in object 3 (the 4th object)
+        let locals = merge_args_with_params(args, &f_v[3])?;
+        let x = replace_params_with_args(&locals, &cdr)?;
+
+        debug!("args = {:?}", args);
+        debug!("x = {:?}", x);
+        p(&x)
     }
 
     fn apply_macro(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
@@ -202,13 +242,7 @@ fn define_closure(list: &Object) -> Result<(String, Object), Error> {
             let p = args[1].clone();
 
             let e = args[2].clone();
-            let body = object::from_vec(vec![
-                object::symbol("lit"),
-                object::symbol("clo"),
-                nil!(),
-                p,
-                e,
-            ])?;
+            let body = object::from_vec(vec![symbol!("lit"), symbol!("clo"), nil!(), p, e])?;
             Ok((name, body))
         } else {
             Err(anyhow!("invalid def name {:?}", args))
@@ -217,6 +251,69 @@ fn define_closure(list: &Object) -> Result<(String, Object), Error> {
         Err(anyhow!("invalid def {:?}", args))
     }
 }
+
+fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, Error> {
+    let mut locals: ObjectMap = HashMap::new();
+
+    let args_v = args.to_vec()?;
+    let params_v = params.to_vec()?;
+
+    if args_v.len() > params_v.len() {
+        return Err(anyhow!(
+            "too many args: {}; for {} params",
+            args_v.len(),
+            params_v.len()
+        ));
+    }
+
+    for i in 0..args_v.len() {
+        if let Object::Symbol(param_str) = params_v[i].clone() {
+            locals.insert(param_str, args_v[i].clone());
+        } else {
+            return Err(anyhow!("invalid param object: {:?}", params_v[i]));
+        }
+    }
+
+    // if we have unmatched params, fill with nil
+    if args_v.len() < params_v.len() {
+        for param in &params_v[args_v.len()..] {
+            if let Object::Symbol(param_str) = param {
+                locals.insert(param_str.to_string(), nil!());
+            } else {
+                return Err(anyhow!("invalid param object: {:?}", param));
+            }
+        }
+    }
+
+    Ok(locals)
+}
+
+fn replace_params_with_args(locals: &ObjectMap, params: &Object) -> Result<Object, Error> {
+    let mut accum: Object = nil!();
+    let mut params = params.clone();
+
+    while !params.is_nil() {
+        if let Object::Pair(pair) = params {
+            let (car, cdr) = *pair.clone();
+            let obj = if let Object::Symbol(name) = car.clone() {
+                if let Some(arg) = locals.get(&name) {
+                    arg
+                } else {
+                    &car
+                }
+            } else {
+                &car
+            };
+            accum = object::join(obj.clone(), accum)?;
+            params = cdr;
+        } else {
+            return Err(anyhow!("expected Pair: {:?}", params));
+        }
+    }
+
+    Ok(accum)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,7 +336,7 @@ mod tests {
 
         let exp = parse("a")?;
         let obj = bel.eval(&exp)?;
-        assert_eq!(obj, object::symbol("b"));
+        assert_eq!(obj, symbol!("b"));
         Ok(())
     }
 
@@ -311,7 +408,7 @@ mod tests {
 
         let parse_obj = parse("(quote ( x ))")?;
         let obj = bel.eval(&parse_obj)?;
-        assert_eq!(obj, object::pair(object::symbol("x"), nil!()));
+        assert_eq!(obj, pair!(symbol!("x"), nil!()));
 
         Ok(())
     }
