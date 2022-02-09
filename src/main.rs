@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Error};
+use log::info;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use log::{debug, error, info, trace};
 use smolbel::{load_source, parse, Bel};
 
 fn main() -> Result<(), Error> {
@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
                         }
                     }
                     Err(err) => {
-                        error!("error: {:?}", err);
+                        eprintln!("error: {:?}", err);
                     }
                 }
             }
@@ -71,11 +71,12 @@ fn process_repl_command(bel: &mut Bel, line: &str) {
             }
         }
         ":load" => {
+            // TODO: parse parts[3] for limit
             if parts.len() != 2 {
                 println!("load: <filepah>");
                 return;
             }
-            match load_source(bel, parts[1]) {
+            match load_source(bel, parts[1], Some(2)) {
                 Ok(()) => {}
                 Err(err) => {
                     println!("error: during :load; {:?}", err);

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::object::Object;
 use anyhow::{anyhow, Error, Result};
+use log::debug;
 
 pub type PrimFunc = fn(&Object) -> Result<Object, Error>;
 
@@ -14,22 +15,23 @@ fn id(params: &Object) -> Result<Object, Error> {
     // * there are two arguments
     // * they are both symbols
     // they have the same name
+    debug!("id: params = {}", params);
 
     let p_v = params.to_vec()?;
     if p_v.len() != 2 {
-        return Err(anyhow!("id: invalid number of params: {:?}", params));
+        return Err(anyhow!("id: invalid number of params: {}", params));
     }
 
     let lhs = if let Object::Symbol(lhs) = &p_v[0] {
         lhs
     } else {
-        return Err(anyhow!("invalid param[0]: {:?}", p_v[0]));
+        return Err(anyhow!("invalid param[0]: {}", p_v[0]));
     };
 
     let rhs = if let Object::Symbol(rhs) = &p_v[1] {
         rhs
     } else {
-        return Err(anyhow!("invalid param[1]: {:?}", p_v[1]));
+        return Err(anyhow!("invalid param[1]: {}", p_v[1]));
     };
 
     let result = if lhs == rhs { t!() } else { nil!() };
