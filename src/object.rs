@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Error};
+use std::fmt;
 
 /// Bel has four fundamental data types:
 /// symbols, pairs, characters, and streams.
@@ -12,40 +13,68 @@ pub enum Object {
     Stream,
 }
 
+/// nil object (aka 'false')
 macro_rules! nil {
     () => {
         Object::Symbol("nil".to_string())
     };
 }
 
+/// 'true' object (true is not a good name for a macro)
 macro_rules! t {
     () => {
         Object::Symbol("t".to_string())
     };
 }
 
+/// general symbol
 macro_rules! symbol {
     ($n:expr) => {
         Object::Symbol($n.to_string())
     };
 }
 
+/// pair, probably part of a list
 macro_rules! pair {
     ($a:expr, $b:expr) => {
         Object::Pair(Box::new(($a, $b)))
     };
 }
 
+/// character
 macro_rules! char {
     ($n:expr) => {
         Object::Char($n.to_string())
     };
 }
 
+/// stream
 macro_rules! stream {
     () => {
         Object::Stream
     };
+}
+
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self {
+            Object::Symbol(name) => {
+                write!(f, "{}", name)?;
+            }
+            Object::Pair(pair) => {
+                let p = *pair.clone();
+                let (h, t) = p;
+                write!(f, "({} . {})", h, t)?;
+            }
+            Object::Char(c) => {
+                write!(f, "c({})", c)?;
+            }
+            Object::Stream => {
+                write!(f, "stream")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Object {

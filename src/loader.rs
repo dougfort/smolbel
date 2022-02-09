@@ -1,12 +1,12 @@
 use crate::parse;
 use crate::Bel;
 use anyhow::{Context, Result};
+use log::{debug, trace, warn};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use log::{trace, debug, warn};
 
-pub fn load_source(bel: &mut Bel, filepath: &str) -> Result<()> {
-    debug!(":loading {}", filepath);
+pub fn load_source(bel: &mut Bel, filepath: &str, limit: Option<usize>) -> Result<()> {
+    debug!(":loading {} limit = {:?}", filepath, limit);
     let file = File::open(filepath)?;
     let reader = BufReader::new(file);
 
@@ -22,14 +22,16 @@ pub fn load_source(bel: &mut Bel, filepath: &str) -> Result<()> {
                 debug!("expr = {:?}", accum);
                 let parsed_expr = parse(&accum)?;
                 if parsed_expr.is_nil() {
-                    debug!("skipping empty expression");
+                    warn!("skipping empty expression");
                     continue 'line_loop;
                 }
                 bel.eval(&parsed_expr).context(format!("\n\n{}\n", accum))?;
                 expr_count += 1;
-                if expr_count == 1 {
-                    warn!("load_source: breaking after {} expression", expr_count);
-                    break;
+                if let Some(limit) = limit {
+                    if expr_count == limit {
+                        warn!("load_source: breaking after {} expression", expr_count);
+                        break;
+                    }
                 }
                 accum.clear();
             }

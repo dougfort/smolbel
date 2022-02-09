@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Error};
-use log::{debug, trace};
+use log::debug;
 
 #[macro_use]
 pub mod object;
@@ -42,7 +42,7 @@ impl Bel {
     }
 
     pub fn eval(&mut self, exp: &Object) -> Result<Object, Error> {
-        debug!("eval({:?}))", exp);
+        debug!("eval: exp = {}", exp);
         let output = match exp {
             Object::Symbol(name) => self.get_bound_object(name)?,
             Object::Pair(pair) => self.eval_pair(pair)?,
@@ -84,7 +84,7 @@ impl Bel {
                     let evaluated_list = self.evaluate_list(cdr)?;
                     self.apply_macro(n, &evaluated_list)
                 }
-                _ => self.evaluate_list(cdr),
+                _ => Err(anyhow!("unknown symbol: {}", name)),
             }
         } else {
             self.evaluate_list(cdr)
@@ -145,6 +145,8 @@ impl Bel {
     }
 
     fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
+        debug!("apply_function: f_name= {}, args= {}", f_name, args);
+
         let f = if let Some(f) = self.globals.get(f_name) {
             f
         } else {
@@ -156,7 +158,7 @@ impl Bel {
         if f_v.len() != 5 {
             return Err(anyhow!("expecting 5 objects in function; found: {:?}", f_v));
         }
-        debug!("f_v = {:?}", f_v);
+        debug!("apply_function: fv = {}", f);
 
         // the function executable is object 4 (the 5th) object
         let e = if let Object::Pair(e) = &f_v[4] {
@@ -164,7 +166,7 @@ impl Bel {
         } else {
             return Err(anyhow!("invalid function body: {:?}", f_v[4]));
         };
-        debug!("e = {:?}", e);
+        debug!("apply_function: f_v[4] = {}", f_v[4]);
 
         let (car, cdr) = *e.clone();
         let e_name = if let Object::Symbol(e_name) = car {
@@ -172,18 +174,28 @@ impl Bel {
         } else {
             return Err(anyhow!("invalid executable: {:?}", car));
         };
-        let p = match self.primatives.get(&e_name) {
-            Some(p) => p,
-            None => return Err(anyhow!("unknown primative: {}", e_name)),
-        };
 
         // the params are in object 3 (the 4th object)
+        debug!("apply_function: args = {}", args);
+        debug!("apply_function: f_v[3] {}", f_v[3]);
         let locals = merge_args_with_params(args, &f_v[3])?;
-        let x = replace_params_with_args(&locals, &cdr)?;
+        debug!("apply_function: locals = {:?}", locals);
+        debug!("apply_function: cdr = {}", cdr);
+        let assigned_values = replace_params_with_args(&locals, &cdr)?;
+        debug!("apply_function: assigned_values = {}", assigned_values);
 
-        debug!("args = {:?}", args);
-        debug!("x = {:?}", x);
-        p(&x)
+        if self.function_names.contains(&e_name) {
+            debug!("apply_function: found nested function {}", e_name);
+            self.apply_function(&e_name, &args)
+        } else {
+            match self.primatives.get(&e_name) {
+                Some(p) => {
+                    debug!("apply_function: found nested primative: {}", e_name);
+                    p(&assigned_values)
+                }
+                None => Err(anyhow!("unknown 'e': {}", e_name)),
+            }
+        }
     }
 
     fn apply_macro(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
