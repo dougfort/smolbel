@@ -2,7 +2,7 @@ use anyhow::{anyhow, Error};
 use log::info;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{load_source, parse, Bel};
+use smolbel::{load_source, new_object_map, parse, Bel, List, Object};
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -29,7 +29,7 @@ fn main() -> Result<(), Error> {
                 match parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {:?}", exp);
-                        match bel.eval(&exp) {
+                        match bel.eval(&new_object_map(), &exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
                             }
@@ -65,9 +65,21 @@ fn process_repl_command(bel: &mut Bel, line: &str) {
     let parts: Vec<&str> = line.split_whitespace().collect();
     match parts[0] {
         ":global" | ":globals" => {
-            println!("global");
-            for (key, value) in &bel.globals {
-                println!("({}, {:?}", key, value);
+            println!("globals");
+            for key in bel.globals.keys() {
+                println!("{}", key);
+            }
+        }
+        ":primative" | ":primatives" => {
+            println!("primatives");
+            for key in bel.primatives.keys() {
+                println!("{}", key);
+            }
+        }
+        ":function" | ":functions" => {
+            println!("functions");
+            for key in &bel.function_names {
+                println!("{}", key);
             }
         }
         ":load" => {
@@ -79,12 +91,62 @@ fn process_repl_command(bel: &mut Bel, line: &str) {
             match load_source(bel, parts[1], Some(2)) {
                 Ok(()) => {}
                 Err(err) => {
-                    println!("error: during :load; {:?}", err);
+                    eprintln!("error: during :load; {:?}", err);
+                }
+            }
+        }
+        ":get" => {
+            if parts.len() != 2 {
+                println!("get: <key>");
+                return;
+            }
+            match bel.globals.get(parts[1]) {
+                Some(obj) => {
+                    println!("{}", obj);
+                }
+                None => {
+                    eprintln!("error: unknown key: {}", line);
+                }
+            }
+        }
+        ":fn" => {
+            if parts.len() != 2 {
+                println!("fn: <name>");
+                return;
+            }
+            let name = parts[1];
+            if !bel.function_names.contains(name) {
+                eprintln!("{} is not a function", name);
+                return;
+            }
+            match bel.globals.get(name) {
+                Some(obj) => match dump_list(obj, 0) {
+                    Ok(()) => {}
+                    Err(err) => {
+                        eprintln!("dump_list failed: {:?}", err);
+                    }
+                },
+                None => {
+                    eprintln!("error: unknown key: {}", line);
                 }
             }
         }
         _ => {
-            println!("error: unkbnown REPL command {}", line);
+            eprintln!("error: unknown REPL command {}", line);
         }
     }
+}
+
+fn dump_list(obj: &Object, level: usize) -> Result<(), Error> {
+    let mut list = List::new(obj);
+
+    while let Some(obj) = list.step()? {
+        if obj.t() == "pair" {
+            dump_list(&obj, level + 1)?;
+        } else {
+            println!("{} {}", str::repeat(" ", level * 4), obj);
+        }
+    }
+
+    Ok(())
 }

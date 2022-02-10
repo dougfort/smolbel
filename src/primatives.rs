@@ -38,7 +38,6 @@ fn id(params: &Object) -> Result<Object, Error> {
 
     Ok(result)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,11 +45,11 @@ mod tests {
 
     #[test]
     fn can_check_id() -> Result<(), Error> {
-        let params = parser::parse("('a 'a)")?;
+        let params = parser::parse("(a a)")?;
         let ans = id(&params)?;
         assert!(ans.is_true());
 
-        let params = parser::parse("('a 'b)")?;
+        let params = parser::parse("(a b)")?;
         let ans = id(&params)?;
         assert!(!ans.is_true());
 

@@ -16,13 +16,19 @@ use primatives::{load_primatives, PrimFunc};
 mod loader;
 pub use loader::load_source;
 
+mod list;
+pub use list::List;
+
 pub type ObjectMap = HashMap<String, Object>;
+pub fn new_object_map() -> ObjectMap {
+    HashMap::new()
+}
 
 pub struct Bel {
     pub globals: ObjectMap,
-    primatives: HashMap<String, PrimFunc>,
-    function_names: HashSet<String>,
-    macro_names: HashSet<String>,
+    pub primatives: HashMap<String, PrimFunc>,
+    pub function_names: HashSet<String>,
+    pub macro_names: HashSet<String>,
 }
 
 impl Bel {
@@ -41,11 +47,11 @@ impl Bel {
         }
     }
 
-    pub fn eval(&mut self, exp: &Object) -> Result<Object, Error> {
+    pub fn eval(&mut self, locals: &ObjectMap, exp: &Object) -> Result<Object, Error> {
         debug!("eval: exp = {}", exp);
         let output = match exp {
-            Object::Symbol(name) => self.get_bound_object(name)?,
-            Object::Pair(pair) => self.eval_pair(pair)?,
+            Object::Symbol(name) => self.get_bound_object(locals, name)?,
+            Object::Pair(pair) => self.eval_pair(locals, pair)?,
             Object::Char(_c) => {
                 return Err(anyhow!("Object::Char not implemented"));
             }
@@ -57,14 +63,17 @@ impl Bel {
         Ok(output)
     }
 
-    fn get_bound_object(&self, name: &str) -> Result<Object, Error> {
-        match self.globals.get(name) {
+    fn get_bound_object(&self, locals: &ObjectMap, name: &str) -> Result<Object, Error> {
+        match locals.get(name) {
             Some(obj) => Ok(obj.clone()),
-            None => Err(anyhow!("unbound symbol: {:?}", name)),
+            None => match self.globals.get(name) {
+                Some(obj) => Ok(obj.clone()),
+                None => Err(anyhow!("unbound symbol: {:?}", name)),
+            },
         }
     }
 
-    fn eval_pair(&mut self, pair: &(Object, Object)) -> Result<Object, Error> {
+    fn eval_pair(&mut self, locals: &ObjectMap, pair: &(Object, Object)) -> Result<Object, Error> {
         let (car, cdr) = &*pair;
         if let Object::Symbol(name) = car {
             match name.as_ref() {
@@ -72,22 +81,24 @@ impl Bel {
                 "def" => self.def(cdr),
                 "mac" => self.mac(cdr),
                 "quote" => quote(cdr),
+                // type should be a primative, but it's a reserved word in Rust
+                "type" => self.report_type(locals, cdr),
                 n if self.primatives.contains_key(n) => {
-                    let evaluated_list = self.evaluate_list(cdr)?;
+                    let evaluated_list = self.evaluate_list(locals, cdr)?;
                     self.primatives[n](&evaluated_list)
                 }
                 n if self.function_names.contains(n) => {
-                    let evaluated_list = self.evaluate_list(cdr)?;
+                    let evaluated_list = self.evaluate_list(locals, cdr)?;
                     self.apply_function(n, &evaluated_list)
                 }
                 n if self.macro_names.contains(n) => {
-                    let evaluated_list = self.evaluate_list(cdr)?;
+                    let evaluated_list = self.evaluate_list(locals, cdr)?;
                     self.apply_macro(n, &evaluated_list)
                 }
                 _ => Err(anyhow!("unknown symbol: {}", name)),
             }
         } else {
-            self.evaluate_list(cdr)
+            self.evaluate_list(locals, cdr)
         }
     }
 
@@ -144,56 +155,117 @@ impl Bel {
         self.set(&mac_def)
     }
 
+    fn report_type(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
+        debug!("report_type: {:?}", args);
+        // we assume we have a list like (type a), so args is a pair x . nil
+        if let Object::Pair(pair) = args {
+            let (car, cdr) = *pair.clone();
+            if cdr.is_nil() {
+                let obj = self.eval(locals, &car)?;
+                Ok(symbol!(obj.t()))
+            } else {
+                return Err(anyhow!("report_type: expecting nil: {:?}", args));
+            }
+        } else {
+            Err(anyhow!("report_type: expecting pair: {:?}", args))
+        }      
+    }
+
     fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
         debug!("apply_function: f_name= {}, args= {}", f_name, args);
 
-        let f = if let Some(f) = self.globals.get(f_name) {
+        let f_obj = if let Some(f) = self.globals.get(f_name) {
             f
         } else {
             return Err(anyhow!("unknown function {}", f_name));
         };
-        let f_v = f.to_vec()?;
 
-        // we expect 5 objects in the function (lit clo nil p e)
-        if f_v.len() != 5 {
-            return Err(anyhow!("expecting 5 objects in function; found: {:?}", f_v));
-        }
-        debug!("apply_function: fv = {}", f);
+        let mut list = List::new(f_obj);
 
-        // the function executable is object 4 (the 5th) object
-        let e = if let Object::Pair(e) = &f_v[4] {
-            e
-        } else {
-            return Err(anyhow!("invalid function body: {:?}", f_v[4]));
-        };
-        debug!("apply_function: f_v[4] = {}", f_v[4]);
-
-        let (car, cdr) = *e.clone();
-        let e_name = if let Object::Symbol(e_name) = car {
-            e_name
-        } else {
-            return Err(anyhow!("invalid executable: {:?}", car));
-        };
-
-        // the params are in object 3 (the 4th object)
-        debug!("apply_function: args = {}", args);
-        debug!("apply_function: f_v[3] {}", f_v[3]);
-        let locals = merge_args_with_params(args, &f_v[3])?;
-        debug!("apply_function: locals = {:?}", locals);
-        debug!("apply_function: cdr = {}", cdr);
-        let assigned_values = replace_params_with_args(&locals, &cdr)?;
-        debug!("apply_function: assigned_values = {}", assigned_values);
-
-        if self.function_names.contains(&e_name) {
-            debug!("apply_function: found nested function {}", e_name);
-            self.apply_function(&e_name, &args)
-        } else {
-            match self.primatives.get(&e_name) {
-                Some(p) => {
-                    debug!("apply_function: found nested primative: {}", e_name);
-                    p(&assigned_values)
+        // we expect the function to contain 5 items
+        // starting with the symbols lit clo nil
+        for &name in &["lit", "clo", "nil"] {
+            match list.step()? {
+                Some(obj) => {
+                    if let Object::Symbol(symbol_name) = obj.clone() {
+                        if symbol_name != name {
+                            return Err(anyhow!(
+                                "apply_function: unexpected symbol: {:?}; expected {}",
+                                obj,
+                                name
+                            ));
+                        }
+                    } else {
+                        return Err(anyhow!("apply_function: unexpected object: {:?}", obj));
+                    }
                 }
-                None => Err(anyhow!("unknown 'e': {}", e_name)),
+                None => {
+                    return Err(anyhow!("apply_function: unexpected end of list"));
+                }
+            }
+        }
+
+        // function parameters should be next in the list fourth item, index 3
+        let parameters = if let Some(obj) = list.step()? {
+            obj
+        } else {
+            return Err(anyhow!(
+                "apply_function: fn list terminates before parameters"
+            ));
+        };
+        let locals = merge_args_with_params(args, &parameters)?;
+
+        // function executable should be last in the list fifth item, index 4
+        let exe_obj = if let Some(obj) = list.step()? {
+            obj
+        } else {
+            return Err(anyhow!(
+                "apply_function: fn list terminates before executeable"
+            ));
+        };
+
+        // the executable should be a list, of the form
+        // (no (id (type x) 'pair))
+        // with mixed calls to primatives and to other functions
+        let mut exe_list = List::new(&exe_obj);
+
+        // the first element of the list should be the name of a function or
+        // a primative
+        let inner_name = if let Some(o) = exe_list.step()? {
+            if let Object::Symbol(n) = o {
+                n
+            } else {
+                return Err(anyhow!("apply_function: invalid Object: {:?}", o));
+            }
+        } else {
+            return Err(anyhow!("apply_function: exe_list terminates before name"));
+        };
+
+        // recursively accumulate the arguments to the inner function or primative
+        debug!("apply_function: {}", inner_name);
+        let mut inner_args_v: Vec<Object> = Vec::new();
+        while let Some(obj) = exe_list.step()? {
+            let arg = self.eval(&locals, &obj)?;
+            inner_args_v.push(arg);
+        }
+        let inner_args = object::from_vec(inner_args_v)?;
+
+        if self.function_names.contains(&inner_name) {
+            debug!(
+                "apply_function: applying inner function {}; args = {}",
+                inner_name, inner_args
+            );
+            self.apply_function(&inner_name, &inner_args)
+        } else {
+            match self.primatives.get(&inner_name) {
+                Some(p) => {
+                    debug!(
+                        "apply_function: applying primative: {}, args = {}",
+                        inner_name, inner_args
+                    );
+                    p(&inner_args)
+                }
+                None => Err(anyhow!("unknown inner_name: {}", inner_name)),
             }
         }
     }
@@ -202,19 +274,13 @@ impl Bel {
         Err(anyhow!("apply_function not implemented"))
     }
 
-    fn evaluate_list(&mut self, list: &Object) -> Result<Object, Error> {
+    fn evaluate_list(&mut self, locals: &ObjectMap, o: &Object) -> Result<Object, Error> {
         let mut accum: Object = nil!();
-        let mut list = list.clone();
+        let mut list = List::new(o);
 
-        while !list.is_nil() {
-            if let Object::Pair(pair) = list {
-                let (car, cdr) = *pair.clone();
-                let obj = self.eval(&car)?;
-                accum = object::join(obj, accum)?;
-                list = cdr;
-            } else {
-                return Err(anyhow!("expected Pair: {:?}", list));
-            }
+        while let Some(obj) = list.step()? {
+            let eval_obj = self.eval(locals, &obj)?;
+            accum = object::join(eval_obj, accum)?;
         }
 
         Ok(accum)
@@ -300,32 +366,6 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
     Ok(locals)
 }
 
-fn replace_params_with_args(locals: &ObjectMap, params: &Object) -> Result<Object, Error> {
-    let mut accum: Object = nil!();
-    let mut params = params.clone();
-
-    while !params.is_nil() {
-        if let Object::Pair(pair) = params {
-            let (car, cdr) = *pair.clone();
-            let obj = if let Object::Symbol(name) = car.clone() {
-                if let Some(arg) = locals.get(&name) {
-                    arg
-                } else {
-                    &car
-                }
-            } else {
-                &car
-            };
-            accum = object::join(obj.clone(), accum)?;
-            params = cdr;
-        } else {
-            return Err(anyhow!("expected Pair: {:?}", params));
-        }
-    }
-
-    Ok(accum)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,7 +374,7 @@ mod tests {
     fn can_get_object() -> Result<(), Error> {
         let mut bel = Bel::new();
         let exp = parse("t")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert_eq!(exp, obj);
         Ok(())
     }
@@ -343,11 +383,11 @@ mod tests {
     fn can_set_object() -> Result<(), Error> {
         let mut bel = Bel::new();
         let exp = parse("(set a b)")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert!(obj.is_nil());
 
         let exp = parse("a")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert_eq!(obj, symbol!("b"));
         Ok(())
     }
@@ -357,7 +397,7 @@ mod tests {
         let mut bel = Bel::new();
 
         let parse_obj = parse("(set a b c d e f)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil());
 
         for (key, val) in &[
@@ -366,7 +406,7 @@ mod tests {
             ("e", "f".to_string()),
         ] {
             let parse_obj = parse(key)?;
-            let obj = bel.eval(&parse_obj)?;
+            let obj = bel.eval(&new_object_map(), &parse_obj)?;
             if let Object::Symbol(s) = obj {
                 assert_eq!(&s, val);
             } else {
@@ -382,7 +422,7 @@ mod tests {
         let mut bel = Bel::new();
 
         let parse_obj = parse("(set a b c d e)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil());
 
         for (key, val) in &[
@@ -391,7 +431,7 @@ mod tests {
             ("e", "nil".to_string()),
         ] {
             let parse_obj = parse(key)?;
-            let obj = bel.eval(&parse_obj)?;
+            let obj = bel.eval(&new_object_map(), &parse_obj)?;
             if let Object::Symbol(s) = obj {
                 assert_eq!(&s, val);
             } else {
@@ -407,11 +447,11 @@ mod tests {
         let mut bel = Bel::new();
 
         let parse_obj = parse("(set a b)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil());
 
         let parse_obj = parse("(quote a)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         if let Object::Symbol(s) = obj {
             assert_eq!(s, "a");
         } else {
@@ -419,7 +459,7 @@ mod tests {
         }
 
         let parse_obj = parse("(quote ( x ))")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert_eq!(obj, pair!(symbol!("x"), nil!()));
 
         Ok(())
@@ -434,15 +474,15 @@ mod tests {
                 (id x nil))
           "#,
         )?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil());
 
         let parse_obj = parse("(xnox nil)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_true());
 
         let parse_obj = parse("(xnox `a)")?;
-        let obj = bel.eval(&parse_obj)?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil(), "{:?}", obj);
 
         Ok(())
