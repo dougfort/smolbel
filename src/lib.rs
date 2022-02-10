@@ -16,13 +16,16 @@ use primatives::{load_primatives, PrimFunc};
 mod loader;
 pub use loader::load_source;
 
+mod list;
+pub use list::List;
+
 pub type ObjectMap = HashMap<String, Object>;
 
 pub struct Bel {
     pub globals: ObjectMap,
-    primatives: HashMap<String, PrimFunc>,
-    function_names: HashSet<String>,
-    macro_names: HashSet<String>,
+    pub primatives: HashMap<String, PrimFunc>,
+    pub function_names: HashSet<String>,
+    pub macro_names: HashSet<String>,
 }
 
 impl Bel {
@@ -147,53 +150,95 @@ impl Bel {
     fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
         debug!("apply_function: f_name= {}, args= {}", f_name, args);
 
-        let f = if let Some(f) = self.globals.get(f_name) {
+        let f_obj = if let Some(f) = self.globals.get(f_name) {
             f
         } else {
             return Err(anyhow!("unknown function {}", f_name));
         };
-        let f_v = f.to_vec()?;
 
-        // we expect 5 objects in the function (lit clo nil p e)
-        if f_v.len() != 5 {
-            return Err(anyhow!("expecting 5 objects in function; found: {:?}", f_v));
-        }
-        debug!("apply_function: fv = {}", f);
+        let mut list = List::new(f_obj);
 
-        // the function executable is object 4 (the 5th) object
-        let e = if let Object::Pair(e) = &f_v[4] {
-            e
-        } else {
-            return Err(anyhow!("invalid function body: {:?}", f_v[4]));
-        };
-        debug!("apply_function: f_v[4] = {}", f_v[4]);
-
-        let (car, cdr) = *e.clone();
-        let e_name = if let Object::Symbol(e_name) = car {
-            e_name
-        } else {
-            return Err(anyhow!("invalid executable: {:?}", car));
-        };
-
-        // the params are in object 3 (the 4th object)
-        debug!("apply_function: args = {}", args);
-        debug!("apply_function: f_v[3] {}", f_v[3]);
-        let locals = merge_args_with_params(args, &f_v[3])?;
-        debug!("apply_function: locals = {:?}", locals);
-        debug!("apply_function: cdr = {}", cdr);
-        let assigned_values = replace_params_with_args(&locals, &cdr)?;
-        debug!("apply_function: assigned_values = {}", assigned_values);
-
-        if self.function_names.contains(&e_name) {
-            debug!("apply_function: found nested function {}", e_name);
-            self.apply_function(&e_name, &args)
-        } else {
-            match self.primatives.get(&e_name) {
-                Some(p) => {
-                    debug!("apply_function: found nested primative: {}", e_name);
-                    p(&assigned_values)
+        // we expect the function to contain 5 items
+        // starting with the symbols lit clo nil
+        for &name in &["lit", "clo", "nil"] {
+            match list.step()? {
+                Some(obj) => {
+                    if let Object::Symbol(symbol_name) = obj.clone() {
+                        if symbol_name != name {
+                            return Err(anyhow!(
+                                "apply_function: unexpected symbol: {:?}; expected {}",
+                                obj,
+                                name
+                            ));
+                        }
+                    } else {
+                        return Err(anyhow!("apply_function: unexpected object: {:?}", obj));
+                    }
                 }
-                None => Err(anyhow!("unknown 'e': {}", e_name)),
+                None => {
+                    return Err(anyhow!("apply_function: unexpected end of list"));
+                }
+            }
+        }
+
+        // function parameters should be next in the list fourth item, index 3
+        let parameters = if let Some(obj) = list.step()? {
+            obj
+        } else {
+            return Err(anyhow!(
+                "apply_function: fn list terminates before parameters"
+            ));
+        };
+
+        // function executable should be last in the list fifth item, index 4
+        let exe_obj = if let Some(obj) = list.step()? {
+            obj
+        } else {
+            return Err(anyhow!(
+                "apply_function: fn list terminates before executeable"
+            ));
+        };
+
+        // the executable should be a list, of the form
+        // (no (id (type x) 'pair))
+        // with mixed calls to primatives and to other functions
+        let mut exe_list = List::new(&exe_obj);
+
+        // the first element of the list should be the name of a function or
+        // a primative
+        let inner_name = if let Some(o) = exe_list.step()? {
+            if let Object::Symbol(n) = o {
+                n
+            } else {
+                return Err(anyhow!("apply_function: invalid Object: {:?}", o));
+            }
+        } else {
+            return Err(anyhow!("apply_function: exe_list terminates before name"));
+        };
+
+        // recursively accumulate the arguments to the inner function or primative
+        debug!("apply_function: {}", inner_name);
+        let mut inner_args_v: Vec<Object> = Vec::new();
+        while let Some(obj) = exe_list.step()? {
+            let arg = self.eval(&obj)?;
+            inner_args_v.push(arg);
+        }
+        let inner_args = object::from_vec(inner_args_v)?;
+        debug!("apply_function: {} inner_args before replace = {}", inner_name, inner_args);
+        let locals = merge_args_with_params(&inner_args, &parameters)?;
+        let inner_args = replace_params_with_args(&locals, &parameters)?;
+        debug!("apply_function: {} inner_args after replace = {}", inner_name, inner_args);
+
+        if self.function_names.contains(&inner_name) {
+            debug!("apply_function: applying inner function {}; args = {}", inner_name, inner_args);
+            self.apply_function(&inner_name, &inner_args)
+        } else {
+            match self.primatives.get(&inner_name) {
+                Some(p) => {
+                    debug!("apply_function: applying primative: {}, args = {}", inner_name, inner_args);
+                    p(&inner_args)
+                }
+                None => Err(anyhow!("unknown inner_name: {}", inner_name)),
             }
         }
     }
