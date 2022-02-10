@@ -82,7 +82,7 @@ impl Bel {
                 "mac" => self.mac(cdr),
                 "quote" => quote(cdr),
                 // type should be a primative, but it's a reserved word in Rust
-                "type" => self.report_type(cdr),
+                "type" => self.report_type(locals, cdr),
                 n if self.primatives.contains_key(n) => {
                     let evaluated_list = self.evaluate_list(locals, cdr)?;
                     self.primatives[n](&evaluated_list)
@@ -155,13 +155,14 @@ impl Bel {
         self.set(&mac_def)
     }
 
-    fn report_type(&mut self, args: &Object) -> Result<Object, Error> {
+    fn report_type(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
         debug!("report_type: {:?}", args);
         // we assume we have a list like (type a), so args is a pair x . nil
         if let Object::Pair(pair) = args {
             let (car, cdr) = *pair.clone();
             if cdr.is_nil() {
-                Ok(symbol!(car.t()))
+                let obj = self.eval(locals, &car)?;
+                Ok(symbol!(obj.t()))
             } else {
                 return Err(anyhow!("report_type: expecting nil: {:?}", args));
             }
