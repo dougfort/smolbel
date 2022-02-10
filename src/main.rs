@@ -2,7 +2,7 @@ use anyhow::{anyhow, Error};
 use log::info;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{load_source, parse, Bel, List, Object};
+use smolbel::{load_source, new_object_map, parse, Bel, List, Object};
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -29,7 +29,7 @@ fn main() -> Result<(), Error> {
                 match parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {:?}", exp);
-                        match bel.eval(&exp) {
+                        match bel.eval(&new_object_map(), &exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
                             }

@@ -40,7 +40,10 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
             remainder: text[1..].to_string(),
             obj: state.obj,
         })
-    } else if state.remainder.starts_with('`') {
+    // the  spec https://sep.yimg.com/ty/cdn/paulgraham/bellanguage.txt?t=1595850613&
+    // defines slightly different usages for backtick and single quote
+    // but I haven't figured that out
+    } else if state.remainder.starts_with('`') || state.remainder.starts_with('\''){
         consume_quote(&state.remainder)
     } else if state.remainder.starts_with('\\') {
         consume_char(&state.remainder)
@@ -105,9 +108,9 @@ fn consume_quote(text: &str) -> Result<ParseState, Error> {
         return Err(anyhow!("consume_quote called with empty text"));
     }
 
-    if !text.starts_with('`') {
+    if !(text.starts_with('`') || text.starts_with('\'') ) {
         return Err(anyhow!(
-            "consume_quote text does not start with '`' '{}'",
+            "consume_quote text does not start with '`' or '\'' '{}'",
             text
         ));
     }
@@ -176,7 +179,7 @@ fn consume_symbol(text: &str) -> Result<ParseState, Error> {
 }
 
 fn is_boundaray_char(c: char) -> bool {
-    c.is_whitespace() || c == '(' || c == ')' || c == '\\' || c == '`'
+    c.is_whitespace() || c == '(' || c == ')' || c == '\\' || c == '`' || c == '\''
 }
 
 #[cfg(test)]

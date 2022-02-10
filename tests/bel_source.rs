@@ -2,7 +2,7 @@
 mod tests {
     use anyhow::Error;
 
-    use smolbel::{load_source, parse, Bel};
+    use smolbel::{load_source, new_object_map, parse, Bel};
 
     const SOURCE_PATH: &str = "bel_source/bel.bel";
     const LIMIT: usize = 2;
@@ -16,21 +16,21 @@ mod tests {
 
         // expression #1
         let exp = parse("(no `a)")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert!(obj.is_nil(), "obj.is_nil(): {:?}", obj);
 
         // expression #1
         let exp = parse("(no nil)")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert!(obj.is_true());
 
         // expression #2
         let exp = parse("(atom `a)")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert!(obj.is_true(), "obj.is_true(): {:?}", obj);
 
         let exp = parse("(atom `(a))")?;
-        let obj = bel.eval(&exp)?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
         assert!(
             obj.is_nil(),
             "obj.is_nil

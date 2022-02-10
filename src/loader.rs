@@ -1,5 +1,5 @@
 use crate::parse;
-use crate::Bel;
+use crate::{new_object_map, Bel};
 use anyhow::{Context, Result};
 use log::{debug, trace, warn};
 use std::fs::File;
@@ -25,7 +25,8 @@ pub fn load_source(bel: &mut Bel, filepath: &str, limit: Option<usize>) -> Resul
                     warn!("skipping empty expression");
                     continue 'line_loop;
                 }
-                bel.eval(&parsed_expr).context(format!("\n\n{}\n", accum))?;
+                bel.eval(&new_object_map(), &parsed_expr)
+                    .context(format!("\n\n{}\n", accum))?;
                 expr_count += 1;
                 if let Some(limit) = limit {
                     if expr_count == limit {
