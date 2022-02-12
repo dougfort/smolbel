@@ -94,12 +94,9 @@ impl Object {
         }
     }
 
+    // anything other thn 'nil is true
     pub fn is_true(&self) -> bool {
-        if let Object::Symbol(name) = self {
-            name == "t"
-        } else {
-            false
-        }
+        !self.is_nil()
     }
 
     pub fn is_pair(&self, o1: Object, o2: Object) -> bool {
@@ -108,6 +105,14 @@ impl Object {
             o1 == car && o2 == cdr
         } else {
             false
+        }
+    }
+
+    pub fn extract_pair(&self) -> Result<(Object, Object), Error> {
+        if let Object::Pair(pair) = self {
+            Ok(*pair.clone()) 
+        } else {
+            Err(anyhow!("expecting pair found: {:?}", self))
         }
     }
 

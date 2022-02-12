@@ -80,9 +80,9 @@ impl Bel {
                 "set" => self.set(cdr),
                 "def" => self.def(cdr),
                 "mac" => self.mac(cdr),
+                "if" => self.r#if(locals, cdr),
                 "quote" => quote(cdr),
-                // type should be a primative, but it's a reserved word in Rust
-                "type" => self.report_type(locals, cdr),
+                "type" => self.r#type(locals, cdr),
                 n if self.primatives.contains_key(n) => {
                     let evaluated_list = self.evaluate_list(locals, cdr)?;
                     self.primatives[n](&evaluated_list)
@@ -155,20 +155,51 @@ impl Bel {
         self.set(&mac_def)
     }
 
-    fn report_type(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
+    // An if expression with an odd number of arguments
+    //  (if a1 a2 a3 a4 ... an)
+    // is equivalent to
+    //  if a1 then a2 else if a3 then a4 ... else an
+    // I.e. the odd numbered arguments are evaluated in order till we either
+    // reach the last, or one returns true.  In the former case, its value
+    // is returned as the value of the if expression. In the latter, the
+    // succeeding argument is evaluated and its value returned.
+    //
+    // An if expression with an even number of arguments
+    //  (if a1 a2 ... an)
+    // is equivalent to
+    //  (if a1 a2 ... an nil)
+    fn r#if(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
+        let mut list = List::new(args);
+
+        while let Some(odd_item) = list.step()? {
+            match list.step()? { // even
+                Some(even_item) => {
+                    let x = self.eval(locals, &odd_item)?;
+                    if x.is_true() {
+                        return self.eval(locals, &even_item);
+                    }                    
+                }
+                // None here indicates an odd number of arguments
+                // so return 'an'
+                None => return self.eval(locals, &odd_item),
+            }
+        }
+
+        // if we make it here, we had an even number of arguments
+        // and none of the predicates was satisified
+        Ok(nil!())
+    }
+
+    fn r#type(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
         debug!("report_type: {:?}", args);
         // we assume we have a list like (type a), so args is a pair x . nil
-        if let Object::Pair(pair) = args {
-            let (car, cdr) = *pair.clone();
-            if cdr.is_nil() {
-                let obj = self.eval(locals, &car)?;
-                Ok(symbol!(obj.t()))
-            } else {
-                return Err(anyhow!("report_type: expecting nil: {:?}", args));
-            }
+        let (car, cdr) = args.extract_pair()?;
+        if cdr.is_nil() {
+            let obj = self.eval(locals, &car)?;
+            Ok(symbol!(obj.t()))
         } else {
-            Err(anyhow!("report_type: expecting pair: {:?}", args))
-        }      
+            Err(anyhow!("report_type: expecting nil: {:?}", args))
+        }
     }
 
     fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
@@ -489,7 +520,29 @@ mod tests {
     }
 
     #[test]
-    fn can_load_function() -> Result<(), Error> {
+    fn can_evaluate_if() -> Result<(), Error> {
+        let mut bel = Bel::new();
+
+        let parse_obj= parse("(if t 'a 'b)")?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
+        assert!(obj.is_symbol("a"));
+
+        let parse_obj= parse("(if nil 'a 'b)")?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
+        assert!(obj.is_symbol("b"));
+
+        let parse_obj= parse("(if nil 'a)")?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
+        assert!(obj.is_nil());
+
+        let parse_obj= parse("(if nil 'a nil 'b 'c)")?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
+        assert!(obj.is_symbol("c"));
+
+        let parse_obj= parse("(if (id nil nil) 'a 'b)")?;
+        let obj = bel.eval(&new_object_map(), &parse_obj)?;
+        assert!(obj.is_symbol("a"));
+
         Ok(())
     }
 }
