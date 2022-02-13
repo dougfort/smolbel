@@ -7,7 +7,11 @@ use log::debug;
 pub type PrimFunc = fn(&Object) -> Result<Object, Error>;
 
 pub fn load_primatives() -> HashMap<String, PrimFunc> {
-    HashMap::from([("id".to_string(), id as PrimFunc)])
+    HashMap::from([
+        ("id".to_string(), id as PrimFunc),
+        ("car".to_string(), car as PrimFunc),
+        ("cdr".to_string(), cdr as PrimFunc),
+    ])
 }
 
 fn id(params: &Object) -> Result<Object, Error> {
@@ -22,21 +26,28 @@ fn id(params: &Object) -> Result<Object, Error> {
         return Err(anyhow!("id: invalid number of params: {}", params));
     }
 
-    let lhs = if let Object::Symbol(lhs) = &p_v[0] {
-        lhs
-    } else {
-        return Err(anyhow!("invalid param[0]: {}", p_v[0]));
+    let mut result = nil!();
+    if let Object::Symbol(lhs) = &p_v[0] {
+        if let Object::Symbol(rhs) = &p_v[1] {
+            if lhs == rhs {
+                result = t!();
+            }
+        }
     };
-
-    let rhs = if let Object::Symbol(rhs) = &p_v[1] {
-        rhs
-    } else {
-        return Err(anyhow!("invalid param[1]: {}", p_v[1]));
-    };
-
-    let result = if lhs == rhs { t!() } else { nil!() };
 
     Ok(result)
+}
+
+fn car(params: &Object) -> Result<Object, Error> {
+    debug!("car: params = {}", params);
+    let (car, _) = params.extract_pair()?;
+    Ok(car)
+}
+
+fn cdr(params: &Object) -> Result<Object, Error> {
+    debug!("cdr: params = {}", params);
+    let (_, cdr) = params.extract_pair()?;
+    Ok(cdr)
 }
 #[cfg(test)]
 mod tests {
