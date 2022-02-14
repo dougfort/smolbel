@@ -5,7 +5,7 @@ mod tests {
     use smolbel::{load_source, new_object_map, parse, Bel};
 
     const SOURCE_PATH: &str = "bel_source/bel.bel";
-    const LIMIT: usize = 2;
+    const LIMIT: usize = 3;
 
     #[test]
     fn can_load() -> Result<(), Error> {
@@ -37,6 +37,12 @@ mod tests {
         : {:?}",
             obj
         );
+
+        // expression #3
+        // expression #3
+        let exp = parse("(all (no (nil nil nil)))")?;
+        let obj = bel.eval(&new_object_map(), &exp)?;
+        assert!(obj.is_symbol("t"));
 
         Ok(())
     }

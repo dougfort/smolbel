@@ -43,7 +43,7 @@ fn dispatch_char(text: &str) -> Result<ParseState, Error> {
     // the  spec https://sep.yimg.com/ty/cdn/paulgraham/bellanguage.txt?t=1595850613&
     // defines slightly different usages for backtick and single quote
     // but I haven't figured that out
-    } else if state.remainder.starts_with('`') || state.remainder.starts_with('\''){
+    } else if state.remainder.starts_with('`') || state.remainder.starts_with('\'') {
         consume_quote(&state.remainder)
     } else if state.remainder.starts_with('\\') {
         consume_char(&state.remainder)
@@ -108,7 +108,7 @@ fn consume_quote(text: &str) -> Result<ParseState, Error> {
         return Err(anyhow!("consume_quote called with empty text"));
     }
 
-    if !(text.starts_with('`') || text.starts_with('\'') ) {
+    if !(text.starts_with('`') || text.starts_with('\'')) {
         return Err(anyhow!(
             "consume_quote text does not start with '`' or '\'' '{}'",
             text

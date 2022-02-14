@@ -110,7 +110,7 @@ impl Object {
 
     pub fn extract_pair(&self) -> Result<(Object, Object), Error> {
         if let Object::Pair(pair) = self {
-            Ok(*pair.clone()) 
+            Ok(*pair.clone())
         } else {
             Err(anyhow!("expecting pair found: {:?}", self))
         }

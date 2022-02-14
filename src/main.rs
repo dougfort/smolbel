@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
 
                 match parse(&line) {
                     Ok(exp) => {
-                        println!("parsed exp = {:?}", exp);
+                        println!("parsed exp = {}", exp);
                         match bel.eval(&new_object_map(), &exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
@@ -88,7 +88,7 @@ fn process_repl_command(bel: &mut Bel, line: &str) {
                 println!("load: <filepah>");
                 return;
             }
-            match load_source(bel, parts[1], Some(2)) {
+            match load_source(bel, parts[1], Some(3)) {
                 Ok(()) => {}
                 Err(err) => {
                     eprintln!("error: during :load; {:?}", err);
