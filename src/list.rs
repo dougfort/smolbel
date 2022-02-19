@@ -24,3 +24,27 @@ impl List {
         }
     }
 }
+
+/// convert a list to a string,
+pub fn format_list(obj: &Object) -> Result<String, Error> {
+    let mut accum = String::new();
+    accum_list(&mut accum, obj)?;
+    Ok(accum)
+}
+
+fn accum_list(accum: &mut String, pair: &Object) -> Result<(), Error> {
+    let mut list = List::new(pair);
+    accum.push('(');
+    while let Some(obj) = list.step()? {
+        accum.push(' ');
+        if let Object::Pair(_) = obj {
+            accum_list(accum, &obj)?;
+        } else {
+            accum.push_str(&format!("{}", obj));
+        }
+    }
+    accum.push(' ');
+    accum.push(')');
+
+    Ok(())
+}

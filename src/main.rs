@@ -1,8 +1,13 @@
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Error, Result};
 use log::info;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{load_source, new_object_map, parse, Bel, List, Object};
+use smolbel::{format_list, load_source, new_object_map, parse, Bel, List, Object};
+
+struct State {
+    text: String,
+    bel: Bel,
+}
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -13,7 +18,10 @@ fn main() -> Result<(), Error> {
         println!("No previous history.");
     };
 
-    let mut bel = Bel::new();
+    let mut state = State {
+        text: String::new(),
+        bel: Bel::new(),
+    };
 
     'repl_loop: loop {
         let readline = rl.readline(">> ");
@@ -22,14 +30,19 @@ fn main() -> Result<(), Error> {
                 rl.add_history_entry(line.as_str());
 
                 if line.starts_with(':') {
-                    process_repl_command(&mut bel, &line);
+                    match process_repl_command(&mut state, &line) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            eprintln!("error: {:?}", err);
+                        }
+                    }
                     continue 'repl_loop;
                 }
 
                 match parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {}", exp);
-                        match bel.eval(&new_object_map(), &exp) {
+                        match state.bel.eval(&new_object_map(), &exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
                             }
@@ -61,80 +74,98 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn process_repl_command(bel: &mut Bel, line: &str) {
-    let parts: Vec<&str> = line.split_whitespace().collect();
+fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
+    let parts: Vec<&str> = line.splitn(2, ' ').collect();
     match parts[0] {
         ":global" | ":globals" => {
             println!("globals");
-            for key in bel.globals.keys() {
+            for key in state.bel.globals.keys() {
                 println!("{}", key);
             }
         }
         ":primative" | ":primatives" => {
             println!("primatives");
-            for key in bel.primatives.keys() {
+            for key in state.bel.primatives.keys() {
                 println!("{}", key);
             }
         }
         ":function" | ":functions" => {
             println!("functions");
-            for key in &bel.function_names {
+            for key in &state.bel.function_names {
                 println!("{}", key);
             }
         }
         ":load" => {
             // TODO: parse parts[3] for limit
             if parts.len() != 2 {
-                println!("load: <filepah>");
-                return;
+                return Err(anyhow!("invalid command").context(":load <filepah>"));
             }
-            match load_source(bel, parts[1], Some(3)) {
-                Ok(()) => {}
-                Err(err) => {
-                    eprintln!("error: during :load; {:?}", err);
-                }
-            }
+            load_source(&mut state.bel, parts[1], Some(3))?;
         }
         ":get" => {
             if parts.len() != 2 {
-                println!("get: <key>");
-                return;
+                return Err(anyhow!("invalid command").context(":get <key>"));
             }
-            match bel.globals.get(parts[1]) {
+            match state.bel.globals.get(&Object::Symbol(parts[1].to_string())) {
                 Some(obj) => {
                     println!("{}", obj);
                 }
                 None => {
-                    eprintln!("error: unknown key: {}", line);
+                    return Err(anyhow!("unknown key: {}", line));
                 }
             }
         }
         ":fn" => {
             if parts.len() != 2 {
-                println!("fn: <name>");
-                return;
+                return Err(anyhow!("invalid command").context(":fn <name>"));
             }
-            let name = parts[1];
-            if !bel.function_names.contains(name) {
-                eprintln!("{} is not a function", name);
-                return;
+            let name = Object::Symbol(parts[1].to_string());
+            if !state.bel.function_names.contains(parts[1]) {
+                return Err(anyhow!("{} is not a function", name));
             }
-            match bel.globals.get(name) {
-                Some(obj) => match dump_list(obj, 0) {
-                    Ok(()) => {}
-                    Err(err) => {
-                        eprintln!("dump_list failed: {:?}", err);
-                    }
-                },
-                None => {
-                    eprintln!("error: unknown key: {}", line);
+            let obj = state
+                .bel
+                .globals
+                .get(&name)
+                .ok_or_else(|| anyhow!("unknown name {}", name))?;
+            dump_list(obj, 0)?;
+        }
+        ":eval" => {
+            if parts.len() != 2 {
+                return Err(anyhow!("invalid command").context(":eval <code>"));
+            }
+            state.text = parts[1].to_string();
+            let obj = parse(&state.text)?;
+            let (exp_name, args) = obj.extract_pair()?;
+            if let Object::Symbol(name) = exp_name {
+                if state.bel.function_names.contains(&name) {
+                    println!("function = {}, args = {}", name, format_list(&args)?);
+                    let function = state.bel.load_function(&Object::Symbol(name))?;
+                    println!("parameters = {}", format_list(&function.parameters)?);
+                    println!("body = {}", format_list(&function.body)?);
+                    parse_body(&function.body)?;
+                } else if state.bel.primatives.contains_key(&name) {
+                    eprintln!("primatives not implemented yet");
+                } else {
+                    return Err(anyhow!("unknown expression: {}", obj));
                 }
+            } else {
+                return Err(anyhow!("invalid expression name {}", obj));
             }
         }
         _ => {
-            eprintln!("error: unknown REPL command {}", line);
+            return Err(anyhow!("unknown REPL command {}", line));
         }
     }
+
+    Ok(())
+}
+
+fn parse_body(obj: &Object) -> Result<(), Error> {
+    let (car, cdr) = obj.extract_pair()?;
+    println!("body car = {:?}", car);
+    println!("body cdr = {:?}", cdr);
+    Ok(())
 }
 
 fn dump_list(obj: &Object, level: usize) -> Result<(), Error> {
