@@ -5,7 +5,7 @@ use std::fmt;
 /// symbols, pairs, characters, and streams.
 /// Instances of the four fundamental types are called objects
 /// https://sep.yimg.com/ty/cdn/paulgraham/bellanguage.txt
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Object {
     Symbol(String),
     Pair(Box<(Object, Object)>),
@@ -35,6 +35,7 @@ macro_rules! symbol {
 }
 
 /// pair, probably part of a list
+#[allow(unused_macros)]
 macro_rules! pair {
     ($a:expr, $b:expr) => {
         Object::Pair(Box::new(($a, $b)))
@@ -42,6 +43,7 @@ macro_rules! pair {
 }
 
 /// character
+#[allow(unused_macros)]
 macro_rules! char {
     ($n:expr) => {
         Object::Char($n.to_string())
@@ -49,6 +51,7 @@ macro_rules! char {
 }
 
 /// stream
+#[allow(unused_macros)]
 macro_rules! stream {
     () => {
         Object::Stream
@@ -113,6 +116,20 @@ impl Object {
             Ok(*pair.clone())
         } else {
             Err(anyhow!("expecting pair found: {:?}", self))
+        }
+    }
+
+    // a pair is a list if the second element is nil, or another pair
+    pub fn is_list(&self) -> bool {
+        match self.extract_pair() {
+            Ok((_, cdr)) => {
+                if let Object::Pair(_) = cdr {
+                    true
+                } else {
+                    cdr.is_nil()
+                }
+            }
+            Err(_) => false,
         }
     }
 

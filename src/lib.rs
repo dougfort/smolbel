@@ -17,9 +17,9 @@ mod loader;
 pub use loader::load_source;
 
 mod list;
-pub use list::List;
+pub use list::{format_list, List};
 
-pub type ObjectMap = HashMap<String, Object>;
+pub type ObjectMap = HashMap<Object, Object>;
 pub fn new_object_map() -> ObjectMap {
     HashMap::new()
 }
@@ -31,10 +31,10 @@ pub struct Bel {
     pub macro_names: HashSet<String>,
 }
 
-struct Function {
-    name: String,
-    parameters: Object,
-    body: Object,
+pub struct Function {
+    pub name: String,
+    pub parameters: Object,
+    pub body: Object,
 }
 
 impl Bel {
@@ -42,10 +42,10 @@ impl Bel {
         Bel {
             // some Symbols bind to themselves
             globals: HashMap::from([
-                ("nil".to_string(), nil!()),
-                ("t".to_string(), symbol!("t")),
-                ("o".to_string(), symbol!("o")),
-                ("apply".to_string(), symbol!("apply")),
+                (nil!(), nil!()),
+                (symbol!("t"), symbol!("t")),
+                (symbol!("o"), symbol!("o")),
+                (symbol!("apply"), symbol!("apply")),
             ]),
             primatives: load_primatives(),
             function_names: HashSet::new(),
@@ -54,11 +54,7 @@ impl Bel {
     }
 
     pub fn eval(&mut self, locals: &ObjectMap, exp: &Object) -> Result<Object, Error> {
-        debug!(
-            "eval: exp = {}; locals = {:?
-        }",
-            exp, locals
-        );
+        debug!("eval: exp = {}; locals = {:?}", exp, locals);
         let output = match exp {
             Object::Symbol(name) => self.get_bound_object(locals, name)?,
             Object::Pair(_) => self.eval_pair(locals, exp)?,
@@ -70,13 +66,15 @@ impl Bel {
             }
         };
 
+        debug!("eval: exp = {}; output = {}", exp, output);
         Ok(output)
     }
 
     fn get_bound_object(&self, locals: &ObjectMap, name: &str) -> Result<Object, Error> {
-        match locals.get(name) {
+        let key = symbol!(name);
+        match locals.get(&key) {
             Some(obj) => Ok(obj.clone()),
-            None => match self.globals.get(name) {
+            None => match self.globals.get(&key) {
                 Some(obj) => Ok(obj.clone()),
                 None => Err(anyhow!("unbound symbol: {:?}", name)),
             },
@@ -85,7 +83,7 @@ impl Bel {
 
     fn eval_pair(&mut self, locals: &ObjectMap, pair: &Object) -> Result<Object, Error> {
         let (car, cdr) = pair.extract_pair()?;
-        if let Object::Symbol(name) = car {
+        if let Object::Symbol(name) = car.clone() {
             match name.as_ref() {
                 "set" => self.set(&cdr),
                 "def" => self.def(&cdr),
@@ -102,7 +100,7 @@ impl Bel {
                 }
                 n if self.function_names.contains(n) => {
                     //                    let evaluated_list = self.evaluate_list(locals, &cdr)?;
-                    self.apply_function(n, &cdr)
+                    self.apply_function(&car, &cdr)
                 }
                 n if self.macro_names.contains(n) => {
                     let evaluated_list = self.evaluate_list(locals, &cdr)?;
@@ -118,7 +116,8 @@ impl Bel {
     fn set(&mut self, args: &Object) -> Result<Object, Error> {
         let list = args.to_vec()?;
         for i in 0..list.len() - 1 {
-            if let Object::Symbol(key) = list[i].clone() {
+            let key = list[i].clone();
+            if key.t() == "symbol" {
                 self.globals.insert(key, list[i + 1].clone());
             } else {
                 return Err(anyhow!(
@@ -133,7 +132,8 @@ impl Bel {
         // means the last value is unspecified
         if list.len() % 2 == 1 {
             let i = list.len() - 1;
-            if let Object::Symbol(key) = list[i].clone() {
+            let key = list[i].clone();
+            if key.t() == "symbol" {
                 self.globals.insert(key, nil!());
             } else {
                 return Err(anyhow!(
@@ -219,7 +219,7 @@ impl Bel {
         }
     }
 
-    fn load_function(&self, f_name: &str) -> Result<Function, Error> {
+    pub fn load_function(&self, f_name: &Object) -> Result<Function, Error> {
         debug!("load_function: {}", f_name);
         let f_obj = if let Some(f) = self.globals.get(f_name) {
             f
@@ -237,17 +237,17 @@ impl Bel {
                     if let Object::Symbol(symbol_name) = obj.clone() {
                         if symbol_name != name {
                             return Err(anyhow!(
-                                "apply_function: unexpected symbol: {:?}; expected {}",
+                                "load_function: unexpected symbol: {:?}; expected {}",
                                 obj,
                                 name
                             ));
                         }
                     } else {
-                        return Err(anyhow!("apply_function: unexpected object: {:?}", obj));
+                        return Err(anyhow!("load_function: unexpected object: {:?}", obj));
                     }
                 }
                 None => {
-                    return Err(anyhow!("apply_function: unexpected end of list"));
+                    return Err(anyhow!("load_function: unexpected end of list"));
                 }
             }
         }
@@ -257,7 +257,7 @@ impl Bel {
             obj
         } else {
             return Err(anyhow!(
-                "apply_function: fn list terminates before parameters"
+                "load_function: fn list terminates before parameters"
             ));
         };
 
@@ -265,7 +265,7 @@ impl Bel {
         let body = if let Some(obj) = list.step()? {
             obj
         } else {
-            return Err(anyhow!("apply_function: fn list terminates before body"));
+            return Err(anyhow!("load_function: fn list terminates before body"));
         };
 
         Ok(Function {
@@ -275,12 +275,14 @@ impl Bel {
         })
     }
 
-    fn apply_function(&mut self, f_name: &str, args: &Object) -> Result<Object, Error> {
-        debug!("apply_function: f_name= {}, args= {}", f_name, args);
-
+    fn apply_function(&mut self, f_name: &Object, args: &Object) -> Result<Object, Error> {
         let function = self.load_function(f_name)?;
 
         let locals = merge_args_with_params(args, &function.parameters)?;
+        debug!(
+            "apply_function: f_name= {}, args= {}, locals = {:?}",
+            f_name, args, locals
+        );
 
         // the function expression should be a list, of the form
         // (no (id (type x) 'pair))
@@ -310,6 +312,7 @@ impl Bel {
             inner_args_v.push(arg);
         }
         let inner_args = object::from_vec(inner_args_v)?;
+        debug!("apply_function: inner_args = {}", inner_args);
         self.eval(&locals, &inner_args)
     }
 
@@ -368,6 +371,10 @@ fn define_closure(list: &Object) -> Result<(String, Object), Error> {
 }
 
 fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, Error> {
+    debug!(
+        "merge_args_with_params: args = {}, params = {}",
+        args, params
+    );
     let mut locals: ObjectMap = HashMap::new();
 
     let args_v = args.to_vec()?;
@@ -382,8 +389,9 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
     }
 
     for i in 0..args_v.len() {
-        if let Object::Symbol(param_str) = params_v[i].clone() {
-            locals.insert(param_str, args_v[i].clone());
+        let key = params_v[i].clone();
+        if key.t() == "symbol" {
+            locals.insert(key, args_v[i].clone());
         } else {
             return Err(anyhow!("invalid param object: {:?}", params_v[i]));
         }
@@ -392,14 +400,15 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
     // if we have unmatched params, fill with nil
     if args_v.len() < params_v.len() {
         for param in &params_v[args_v.len()..] {
-            if let Object::Symbol(param_str) = param {
-                locals.insert(param_str.to_string(), nil!());
+            if param.t() == "symbol" {
+                locals.insert(param.clone(), nil!());
             } else {
                 return Err(anyhow!("invalid param object: {:?}", param));
             }
         }
     }
 
+    debug!("merge_args_with_params: locals {:?}", locals);
     Ok(locals)
 }
 
