@@ -7,6 +7,7 @@ use smolbel::list;
 use smolbel::loader;
 use smolbel::object;
 use smolbel::parser;
+use smolbel::functions;
 
 struct State {
     text: String,
@@ -145,21 +146,14 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
             state.text = parts[1].to_string();
             let obj = parser::parse(&state.text)?;
             let (exp_name, args) = obj.extract_pair()?;
-            if let object::Object::Symbol(name) = exp_name {
-                if state.bel.function_names.contains(&name) {
-                    println!("function = {}, args = {}", name, list::format_list(&args)?);
-                    let function = state.bel.load_function(&object::Object::Symbol(name))?;
-                    println!("parameters = {}", list::format_list(&function.parameters)?);
-                    println!("body = {}", list::format_list(&function.body)?);
-                    parse_body(&function.body)?;
-                } else if state.bel.primatives.contains_key(&name) {
-                    eprintln!("primatives not implemented yet");
-                } else {
-                    return Err(anyhow!("unknown expression: {}", obj));
-                }
+            let function = if let Some(f) = state.bel.globals.get(&exp_name) {
+                functions::expand_function(&exp_name, f)?
             } else {
-                return Err(anyhow!("invalid expression name {}", obj));
-            }
+                return Err(anyhow!("unknown function {}", exp_name));
+            };
+            println!("parameters = {}", list::format_list(&function.parameters)?);
+            println!("body = {}", list::format_list(&function.body)?);
+            parse_body(&function.body)?;
         }
         _ => {
             return Err(anyhow!("unknown REPL command {}", line));
