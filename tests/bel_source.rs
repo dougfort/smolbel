@@ -37,7 +37,7 @@ mod tests {
 
         // expression #3
         // expression #3
-        let exp = parser::parse("(all (no (nil nil nil)))")?;
+        let exp = parser::parse("(all (no (t t)))")?;
         let obj = bel.eval(&eval::new_object_map(), &exp)?;
         assert!(obj.is_symbol("t"));
 

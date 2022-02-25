@@ -139,13 +139,21 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
                 .ok_or_else(|| anyhow!("unknown name {}", name))?;
             dump_list(obj, 0)?;
         }
+        ":parse" => {
+            if parts.len() != 2 {
+                return Err(anyhow!("invalid command").context(":parse <code>"));
+            }
+            state.text = parts[1].to_string();
+            let obj = parser::parse(&state.text)?;
+            println!("{}", obj);
+        }
         ":eval" => {
             if parts.len() != 2 {
                 return Err(anyhow!("invalid command").context(":eval <code>"));
             }
             state.text = parts[1].to_string();
             let obj = parser::parse(&state.text)?;
-            let (exp_name, args) = obj.extract_pair()?;
+            let (exp_name, _args) = obj.extract_pair()?;
             let function = if let Some(f) = state.bel.globals.get(&exp_name) {
                 functions::expand_function(&exp_name, f)?
             } else {

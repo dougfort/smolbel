@@ -5,12 +5,21 @@ use crate::object::Object;
 use crate::primatives::{load_primatives, PrimFunc};
 
 use anyhow::{anyhow, Error};
-use log::debug;
+use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 
 pub type ObjectMap = HashMap<Object, Object>;
 pub fn new_object_map() -> ObjectMap {
     HashMap::new()
+}
+pub fn dump_object_map(om: &ObjectMap) -> String {
+    let mut accum = String::new();
+
+    for (key, val) in  om {
+        accum.push_str(&format!(" {} => {}; ", key, val));
+    }
+
+    accum
 }
 
 pub struct Bel {
@@ -37,7 +46,7 @@ impl Bel {
     }
 
     pub fn eval(&mut self, locals: &ObjectMap, exp: &Object) -> Result<Object, Error> {
-        debug!("eval: exp = {}; locals = {:?}", exp, locals);
+        debug!("eval: exp = {}; locals = {}", exp, dump_object_map(locals));
         let output = match exp {
             Object::Symbol(name) => self.get_bound_object(locals, name)?,
             Object::Pair(_) => self.eval_pair(locals, exp)?,
@@ -49,7 +58,7 @@ impl Bel {
             }
         };
 
-        debug!("eval: exp = {}; output = {}", exp, output);
+        trace!("eval: exp = {}; output = {}", exp, output);
         Ok(output)
     }
 
@@ -75,7 +84,7 @@ impl Bel {
                 "quote" => quote(&cdr),
                 "type" => {
                     let evaluated_list = self.evaluate_list(locals, &cdr)?;
-                    self.r#type(locals, &evaluated_list)
+                    self.r#type(&evaluated_list)
                 }
                 n if self.primatives.contains_key(n) => {
                     let evaluated_list = self.evaluate_list(locals, &cdr)?;
@@ -128,6 +137,7 @@ impl Bel {
         }
         Ok(nil!())
     }
+
     // When you see
     //  (def n p e)
     // treat it as an abbreviation for
@@ -165,16 +175,16 @@ impl Bel {
     // is equivalent to
     //  (if a1 a2 ... an nil)
     fn r#if(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
-        debug!("if: {}", args);
+        debug!("#if: {}", args);
         let mut list = List::new(args);
 
         while let Some(odd_item) = list.step()? {
             match list.step()? {
                 // even
                 Some(even_item) => {
-                    debug!("if: even_item: {}", even_item);
+                    trace!("#if: even_item: {}", even_item);
                     let x = self.eval(locals, &odd_item)?;
-                    debug!("if: odd_item: {}", odd_item);
+                    trace!("#if: odd_item: {}", odd_item);
                     if x.is_true() {
                         return self.eval(locals, &even_item);
                     }
@@ -190,15 +200,15 @@ impl Bel {
         Ok(nil!())
     }
 
-    fn r#type(&mut self, locals: &ObjectMap, args: &Object) -> Result<Object, Error> {
-        debug!("report_type: {:?}", args);
+    fn r#type(&mut self, args: &Object) -> Result<Object, Error> {
+        debug!("#type: {}", args);
         // we assume we have a list like (type a), so args is a pair x . nil
         let (car, cdr) = args.extract_pair()?;
         if cdr.is_nil() {
-            let obj = self.eval(locals, &car)?;
-            Ok(symbol!(obj.t()))
+//            let obj = self.eval(locals, &car)?;
+            Ok(symbol!(car.t()))
         } else {
-            Err(anyhow!("report_type: expecting nil: {:?}", args))
+            Err(anyhow!("#type: expecting nil cdr: {}", args))
         }
     }
 
@@ -209,12 +219,10 @@ impl Bel {
             return Err(anyhow!("unknown function {}", f_name));
         };
 
-        // let function = self.load_function(f_name)?;
-
         let locals = merge_args_with_params(args, &function.parameters)?;
         debug!(
-            "apply_function: f_name= {}, args= {}, locals = {:?}",
-            f_name, args, locals
+            "apply_function: f_name= {}, args= {}, locals = {}",
+            f_name, args, dump_object_map(&locals),
         );
 
         // the function expression should be a list, of the form
@@ -233,7 +241,7 @@ impl Bel {
             ));
         };
 
-        debug!(
+        trace!(
             "apply_function: {}; inner_name = {}",
             function.name, inner_name
         );
@@ -245,7 +253,7 @@ impl Bel {
             inner_args_v.push(arg);
         }
         let inner_args = object::from_vec(inner_args_v)?;
-        debug!("apply_function: inner_args = {}", inner_args);
+        trace!("apply_function: inner_args = {}", inner_args);
         self.eval(&locals, &inner_args)
     }
 
@@ -254,6 +262,7 @@ impl Bel {
     }
 
     fn evaluate_list(&mut self, locals: &ObjectMap, o: &Object) -> Result<Object, Error> {
+        debug!("evaluate_list: locals = {}; o = {}", dump_object_map(locals), o);
         let mut accum: Object = nil!();
         let mut list = List::new(o);
 
@@ -324,6 +333,10 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
     for i in 0..args_v.len() {
         let key = params_v[i].clone();
         if key.t() == "symbol" {
+            debug!(
+                "merge_args_with_params: args_v[{}]={}, params_v[{}]={}",
+                i, args_v[i], i, params_v[i]
+            );
             locals.insert(key, args_v[i].clone());
         } else {
             return Err(anyhow!("invalid param object: {:?}", params_v[i]));
@@ -341,7 +354,7 @@ fn merge_args_with_params(args: &Object, params: &Object) -> Result<ObjectMap, E
         }
     }
 
-    debug!("merge_args_with_params: locals {:?}", locals);
+    trace!("merge_args_with_params: locals {}", dump_object_map(&locals));
     Ok(locals)
 }
 
@@ -520,6 +533,31 @@ mod tests {
         let obj = bel.eval(&new_object_map(), &parse_obj)?;
         assert!(obj.is_nil());
 
+        Ok(())
+    }
+
+    #[test]
+    fn can_merge_args_with_params() -> Result<(), Error> {
+        let args_v = vec![symbol!("a")];
+        let args = object::from_vec(args_v)?;
+        let params_v = vec![symbol!("x")];
+        let params = object::from_vec(params_v)?;
+        let locals = merge_args_with_params(&args, &params)?;
+        assert!(locals.contains_key(&symbol!("x")));
+        assert!(locals.get(&symbol!("x")) == Some(&symbol!("a")));
+
+        let l1_v = vec![symbol!("a")];
+        let l1 = object::from_vec(l1_v)?;
+        let args_v = vec![symbol!("no"), l1];
+        let args = object::from_vec(args_v)?;
+        let params_v = vec![symbol!("f"), symbol!("xs")];
+        let params = object::from_vec(params_v)?;
+        let locals = merge_args_with_params(&args, &params)?;
+        assert!(locals.contains_key(&symbol!("f")));
+        assert!(locals.get(&symbol!("f")) == Some(&symbol!("no")));
+        assert!(locals.contains_key(&symbol!("xs")));
+        assert!(locals.get(&symbol!("xs")) == Some(&pair!(symbol!("a"), nil!())));
+        
         Ok(())
     }
 }
