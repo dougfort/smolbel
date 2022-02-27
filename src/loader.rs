@@ -1,5 +1,5 @@
+use crate::eval::{new_object_map, Bel};
 use crate::parse;
-use crate::{new_object_map, Bel};
 use anyhow::{Context, Result};
 use log::{debug, trace, warn};
 use std::fs::File;

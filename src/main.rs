@@ -2,11 +2,16 @@ use anyhow::{anyhow, Error, Result};
 use log::info;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use smolbel::{format_list, load_source, new_object_map, parse, Bel, List, Object};
+use smolbel::eval;
+use smolbel::list;
+use smolbel::loader;
+use smolbel::object;
+use smolbel::parser;
+use smolbel::functions;
 
 struct State {
     text: String,
-    bel: Bel,
+    bel: eval::Bel,
 }
 
 fn main() -> Result<(), Error> {
@@ -20,7 +25,7 @@ fn main() -> Result<(), Error> {
 
     let mut state = State {
         text: String::new(),
-        bel: Bel::new(),
+        bel: eval::Bel::new(),
     };
 
     'repl_loop: loop {
@@ -39,10 +44,10 @@ fn main() -> Result<(), Error> {
                     continue 'repl_loop;
                 }
 
-                match parse(&line) {
+                match parser::parse(&line) {
                     Ok(exp) => {
                         println!("parsed exp = {}", exp);
-                        match state.bel.eval(&new_object_map(), &exp) {
+                        match state.bel.eval(&eval::new_object_map(), &exp) {
                             Ok(obj) => {
                                 println!("eval output = {:?}", obj);
                             }
@@ -99,14 +104,18 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
             // TODO: parse parts[3] for limit
             if parts.len() != 2 {
                 return Err(anyhow!("invalid command").context(":load <filepah>"));
-            }
-            load_source(&mut state.bel, parts[1], Some(3))?;
+            };
+            loader::load_source(&mut state.bel, parts[1], Some(3))?;
         }
         ":get" => {
             if parts.len() != 2 {
                 return Err(anyhow!("invalid command").context(":get <key>"));
             }
-            match state.bel.globals.get(&Object::Symbol(parts[1].to_string())) {
+            match state
+                .bel
+                .globals
+                .get(&object::Object::Symbol(parts[1].to_string()))
+            {
                 Some(obj) => {
                     println!("{}", obj);
                 }
@@ -119,7 +128,7 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
             if parts.len() != 2 {
                 return Err(anyhow!("invalid command").context(":fn <name>"));
             }
-            let name = Object::Symbol(parts[1].to_string());
+            let name = object::Object::Symbol(parts[1].to_string());
             if !state.bel.function_names.contains(parts[1]) {
                 return Err(anyhow!("{} is not a function", name));
             }
@@ -130,28 +139,29 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
                 .ok_or_else(|| anyhow!("unknown name {}", name))?;
             dump_list(obj, 0)?;
         }
+        ":parse" => {
+            if parts.len() != 2 {
+                return Err(anyhow!("invalid command").context(":parse <code>"));
+            }
+            state.text = parts[1].to_string();
+            let obj = parser::parse(&state.text)?;
+            println!("{}", obj);
+        }
         ":eval" => {
             if parts.len() != 2 {
                 return Err(anyhow!("invalid command").context(":eval <code>"));
             }
             state.text = parts[1].to_string();
-            let obj = parse(&state.text)?;
-            let (exp_name, args) = obj.extract_pair()?;
-            if let Object::Symbol(name) = exp_name {
-                if state.bel.function_names.contains(&name) {
-                    println!("function = {}, args = {}", name, format_list(&args)?);
-                    let function = state.bel.load_function(&Object::Symbol(name))?;
-                    println!("parameters = {}", format_list(&function.parameters)?);
-                    println!("body = {}", format_list(&function.body)?);
-                    parse_body(&function.body)?;
-                } else if state.bel.primatives.contains_key(&name) {
-                    eprintln!("primatives not implemented yet");
-                } else {
-                    return Err(anyhow!("unknown expression: {}", obj));
-                }
+            let obj = parser::parse(&state.text)?;
+            let (exp_name, _args) = obj.extract_pair()?;
+            let function = if let Some(f) = state.bel.globals.get(&exp_name) {
+                functions::expand_function(&exp_name, f)?
             } else {
-                return Err(anyhow!("invalid expression name {}", obj));
-            }
+                return Err(anyhow!("unknown function {}", exp_name));
+            };
+            println!("parameters = {}", list::format_list(&function.parameters)?);
+            println!("body = {}", list::format_list(&function.body)?);
+            parse_body(&function.body)?;
         }
         _ => {
             return Err(anyhow!("unknown REPL command {}", line));
@@ -161,15 +171,15 @@ fn process_repl_command(state: &mut State, line: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn parse_body(obj: &Object) -> Result<(), Error> {
+fn parse_body(obj: &object::Object) -> Result<(), Error> {
     let (car, cdr) = obj.extract_pair()?;
     println!("body car = {:?}", car);
     println!("body cdr = {:?}", cdr);
     Ok(())
 }
 
-fn dump_list(obj: &Object, level: usize) -> Result<(), Error> {
-    let mut list = List::new(obj);
+fn dump_list(obj: &object::Object, level: usize) -> Result<(), Error> {
+    let mut list = list::List::new(obj);
 
     while let Some(obj) = list.step()? {
         if obj.t() == "pair" {

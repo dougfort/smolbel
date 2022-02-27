@@ -2,5 +2,5 @@
 
 set euo pipefail
 
-export RUST_LOG=smolbel=trace
+export RUST_LOG=smolbel=debug
 cargo run
