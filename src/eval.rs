@@ -87,12 +87,13 @@ impl Bel {
                     self.r#type(&evaluated_list)
                 }
                 n if self.primatives.contains_key(n) => {
+                    debug!("eval: primative: {}", n);
                     let evaluated_list = self.evaluate_list(locals, &cdr)?;
                     self.primatives[n](&evaluated_list)
                 }
                 n if self.function_names.contains(n) => {
-                    //                    let evaluated_list = self.evaluate_list(locals, &cdr)?;
-                    self.apply_function(&car, &cdr)
+                    let evaluated_list = self.evaluate_list(locals, &cdr)?;
+                    self.apply_function(&car, &evaluated_list)
                 }
                 n if self.macro_names.contains(n) => {
                     let evaluated_list = self.evaluate_list(locals, &cdr)?;
@@ -230,31 +231,7 @@ impl Bel {
         // with mixed calls to primatives and to other functions
         // the first element of the list should be the name of a function or
         // a primative
-        let (car, cdr) = function.body.extract_pair()?;
-        let inner_name = if let Object::Symbol(n) = car.clone() {
-            n
-        } else {
-            return Err(anyhow!(
-                "apply_function: {}; invalid object for inner_name {:?}",
-                function.name,
-                car
-            ));
-        };
-
-        trace!(
-            "apply_function: {}; inner_name = {}",
-            function.name, inner_name
-        );
-        // recursively accumulate the arguments to the inner function or primative
-        let mut exe_list = List::new(&cdr);
-        let mut inner_args_v: Vec<Object> = vec![car];
-        while let Some(obj) = exe_list.step()? {
-            let arg = self.eval(&locals, &obj)?;
-            inner_args_v.push(arg);
-        }
-        let inner_args = object::from_vec(inner_args_v)?;
-        trace!("apply_function: inner_args = {}", inner_args);
-        self.eval(&locals, &inner_args)
+        self.eval(&locals, &function.body)
     }
 
     fn apply_macro(&mut self, _name: &str, _args: &Object) -> Result<Object, Error> {
